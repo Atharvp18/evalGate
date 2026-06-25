@@ -1,0 +1,26 @@
+# EvalGate configuration — all values here are the defaults.
+# Copy and edit this file per project; it is loaded from the working directory.
+
+[evalgate]
+trials = 6                    # default trials per case (overridden per case in YAML)
+max_concurrent_trials = 4     # asyncio semaphore width
+trial_timeout_s = 120         # per-trial timeout in seconds
+judge_model = "gemini/gemini-2.0-flash"   # litellm model string for the judge
+max_llm_calls_per_run = 300   # hard cap across agent + judge calls; aborts with error
+regression_margin = 0.10      # pass_rate must drop by more than this to flag regression
+flaky_ci_width = 0.5          # Wilson CI width above which a partial-pass case is "flaky"
+temperature = 0.2             # LLM temperature for agent calls (where API supports it)
+db_path = "evalgate.db"       # SQLite database path
+
+[costs]
+# Approximate USD per token — used for cost estimates printed at run end.
+# Update if your model pricing changes.
+input_per_million = 0.075
+output_per_million = 0.30
+
+[edgar]
+# Must not remain as the placeholder — evalgate will error on startup if unchanged.
+user_agent = "EvalGate research project <your-email@example.com>"
+mode = "replay"               # "live" or "replay"; eval runs always use "replay"
+fixtures_dir = "examples/sec_agent/fixtures"
+requests_per_second = 5       # politeness cap for live mode
