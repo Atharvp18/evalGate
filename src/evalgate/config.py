@@ -26,7 +26,7 @@ class EvalGateConfig:
     trials: int = 6
     max_concurrent_trials: int = 4
     trial_timeout_s: int = 120
-    judge_model: str = "gemini/gemini-2.0-flash"
+    judge_model: str = "gemini/gemini-2.5-flash"
     max_llm_calls_per_run: int = 300
     regression_margin: float = 0.10
     flaky_ci_width: float = 0.5
@@ -81,7 +81,7 @@ def load_config(path: Path | None = None) -> EvalGateConfig:
         trials=eg.get("trials", 6),
         max_concurrent_trials=eg.get("max_concurrent_trials", 4),
         trial_timeout_s=eg.get("trial_timeout_s", 120),
-        judge_model=eg.get("judge_model", "gemini/gemini-2.0-flash"),
+        judge_model=eg.get("judge_model", "gemini/gemini-2.5-flash"),
         max_llm_calls_per_run=eg.get("max_llm_calls_per_run", 300),
         regression_margin=eg.get("regression_margin", 0.10),
         flaky_ci_width=eg.get("flaky_ci_width", 0.5),

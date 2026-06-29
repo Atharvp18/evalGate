@@ -5,7 +5,7 @@
 trials = 6                    # default trials per case (overridden per case in YAML)
 max_concurrent_trials = 4     # asyncio semaphore width
 trial_timeout_s = 120         # per-trial timeout in seconds
-judge_model = "gemini/gemini-2.0-flash"   # litellm model string for the judge
+judge_model = "gemini/gemini-2.5-flash"   # litellm model string for the judge
 max_llm_calls_per_run = 300   # hard cap across agent + judge calls; aborts with error
 regression_margin = 0.10      # pass_rate must drop by more than this to flag regression
 flaky_ci_width = 0.5          # Wilson CI width above which a partial-pass case is "flaky"

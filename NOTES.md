@@ -82,3 +82,85 @@ Code shell. Confirmed by using the full path. User should add `/opt/homebrew/bin
   concepts only, all fixtures are well under 3 MB. No manual intervention was needed.
 
 - Nvidia's most recent quarterly revenue (Q1 FY2027, period ending 2026-04-26): **$81.6 billion**.
+
+---
+
+## 2026-06-29 — Phase 2: Subject Agent + ADKAdapter
+
+**Key decisions:**
+
+- **`AgentAdapter` is a `Protocol`, not an ABC.** Structural typing means future
+  adapters do not need to inherit from anything — they just implement
+  `async def run(self, query: str) -> AgentRunResult`. This matches the spec's
+  "no premature abstraction" rule: we have exactly one implementation, and the
+  Protocol exists only so the runner can type-check against it.
+
+- **Fresh session per `adapter.run()` call.** ADK's `InMemorySessionService`
+  keys sessions by `(app_name, user_id, session_id)`. We generate a new
+  `uuid.uuid4()` session id every call, so trials cannot leak state to each
+  other. This is a correctness requirement: shared session memory would
+  correlate trials, invalidating the Wilson CI assumption that trials are
+  independent samples.
+
+- **Module-level singleton for EDGAR client (`configure_client`).** ADK tool
+  functions are passed by reference into `LlmAgent(tools=[...])`. ADK then
+  invokes them with only the args the LLM emits — there is no way to inject
+  extra arguments like an `EdgarClient`. A module-level singleton, configured
+  at agent startup, is the cleanest pattern that fits ADK's calling convention.
+
+- **Safe calculator via `ast.parse(mode='eval')` + a whitelist.** Built around
+  a small dict of allowed `BinOp` / `UnaryOp` node types. Rejects names, calls,
+  attribute access, subscripts, comprehensions — anything that could escape
+  the arithmetic domain. Tested with `__import__('os').system(...)` as a
+  smoke test for the rejection path.
+
+- **Token usage summed across every event.** ADK emits multiple events per
+  invocation when sub-agents are involved (one per LLM call per sub-agent
+  hop). The adapter sums `prompt_token_count + candidates_token_count` across
+  all of them — a single trial of one query consumed 17,433 input tokens
+  during verification (coordinator + retrieval + report each call the model
+  with the full context, hence the high count).
+
+- **`raw_events` stored as a lightweight dict snapshot, not the full Event.**
+  Full ADK Events contain internal references that do not JSON-serialise
+  cleanly. The adapter extracts `{author, is_final, text, function_calls,
+  function_responses}` per event — enough for `mine-trace` (Phase 8) to
+  reconstruct what happened.
+
+- **`gemini-2.5-flash` over `gemini-2.0-flash`.** The 2.0 model returned
+  `quota: 0` on the AI Studio free tier (regional restriction); 2.5-flash
+  worked immediately. Updated `evalgate.toml` and `config.py` defaults.
+
+**Bugs encountered:**
+
+- API key with prefix `AQ.Ab8RN...` got `RESOURCE_EXHAUSTED limit: 0` for
+  `gemini-2.0-flash`. Same key worked fine for `gemini-2.5-flash`. Root cause:
+  not all models are available on the free tier in every region. The model
+  list call (`client.models.list()`) succeeded with the same key, so the key
+  itself was valid — it was a per-model quota issue. The new key prefix `AQ.`
+  is the standard format now (older `AIza` prefix is deprecated).
+
+- `ruff` flagged `E402` on `chat.py` and `record_fixtures.py` because those
+  scripts manipulate `sys.path` before importing. Resolved with a per-file
+  ignore in `pyproject.toml` rather than restructuring — these are entry-point
+  scripts that need to bootstrap the package before installation.
+
+**Surprises:**
+
+- Even for a simple lookup ("Nvidia's revenue last quarter"), the coordinator
+  made 4 sub-agent transfers and tool calls: `transfer_to_agent(retrieval)`
+  → `lookup_cik` → `get_company_facts` → `transfer_to_agent(report)`.
+  Analysis was correctly skipped because no math was needed — the instruction
+  to "skip step 2 if the question can be answered without analysis" worked
+  on the first try.
+
+- First live run latency: ~21 seconds. Three sequential LLM calls (coordinator
+  decides → retrieval executes → report formats), each going to a free-tier
+  endpoint. This will matter for eval runs: 6 cases × 8 trials × 21 s = ~17
+  minutes per `evalgate run`. Phase 3 needs the asyncio semaphore precisely
+  because of this.
+
+- The agent cited the exact period_end date and form type without being asked
+  to in the question. The report agent's instruction
+  ("Use the company name and the source filing for every figure. Always
+  cite.") propagated correctly through the coordinator's hand-off.

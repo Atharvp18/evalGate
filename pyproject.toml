@@ -43,6 +43,11 @@ src = ["src"]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["B008"]
 
+[tool.ruff.lint.per-file-ignores]
+# These scripts manipulate sys.path before importing — E402 is unavoidable.
+"examples/sec_agent/chat.py" = ["E402"]
+"examples/sec_agent/record_fixtures.py" = ["E402"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
