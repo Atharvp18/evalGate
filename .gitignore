@@ -219,3 +219,6 @@ __marimo__/
 
 # EvalGate
 evalgate.db
+
+# macOS
+.DS_Store
