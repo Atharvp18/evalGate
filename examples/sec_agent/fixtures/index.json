@@ -1,0 +1,23 @@
+{
+  "https://www.sec.gov/files/company_tickers.json": "ace4a0fb8e9e22bb.json",
+  "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json": "587c133c2376b2e8.json",
+  "https://data.sec.gov/submissions/CIK0000320193.json": "91bdab619e8f37da.json",
+  "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json": "6dd9764d9569ae2b.json",
+  "https://data.sec.gov/submissions/CIK0000789019.json": "ef055d13b1b76eea.json",
+  "https://data.sec.gov/api/xbrl/companyfacts/CIK0001045810.json": "b986f6790669a272.json",
+  "https://data.sec.gov/submissions/CIK0001045810.json": "67b767aac259adf1.json",
+  "https://data.sec.gov/api/xbrl/companyfacts/CIK0001652044.json": "e91e3a5fdc6893d3.json",
+  "https://data.sec.gov/submissions/CIK0001652044.json": "da4d38e808e27baf.json",
+  "https://data.sec.gov/api/xbrl/companyfacts/CIK0001018724.json": "350c1a14b67a3810.json",
+  "https://data.sec.gov/submissions/CIK0001018724.json": "d19f55a5af75132c.json",
+  "https://data.sec.gov/api/xbrl/companyfacts/CIK0001326801.json": "a34b18f2bf5d418e.json",
+  "https://data.sec.gov/submissions/CIK0001326801.json": "d8deed0f49b443df.json",
+  "https://data.sec.gov/api/xbrl/companyfacts/CIK0001318605.json": "597cbaed96873924.json",
+  "https://data.sec.gov/submissions/CIK0001318605.json": "1fcc706c14d082b1.json",
+  "https://data.sec.gov/api/xbrl/companyfacts/CIK0000019617.json": "1ecfa4f8cb0c39ea.json",
+  "https://data.sec.gov/submissions/CIK0000019617.json": "1b0b331efff4a25e.json",
+  "https://data.sec.gov/api/xbrl/companyfacts/CIK0000200406.json": "07b5eaef93378cf5.json",
+  "https://data.sec.gov/submissions/CIK0000200406.json": "32fb4d47b7c58a2a.json",
+  "https://data.sec.gov/api/xbrl/companyfacts/CIK0000034088.json": "dae1aa62fd220625.json",
+  "https://data.sec.gov/submissions/CIK0000034088.json": "20df42f68de5597c.json"
+}
