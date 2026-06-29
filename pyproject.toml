@@ -47,6 +47,7 @@ ignore = ["B008"]
 # These scripts manipulate sys.path before importing — E402 is unavoidable.
 "examples/sec_agent/chat.py" = ["E402"]
 "examples/sec_agent/record_fixtures.py" = ["E402"]
+"examples/sec_agent/agent.py" = ["E402"]
 
 [dependency-groups]
 dev = [

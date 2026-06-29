@@ -19,6 +19,16 @@ from __future__ import annotations
 
 import ast
 import operator as op
+import sys
+from pathlib import Path
+
+# Ensure repo root and src/ are on sys.path so `adk run examples/sec_agent`
+# works without the package being installed.
+_repo_root = Path(__file__).parent.parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+if str(_repo_root / "src") not in sys.path:
+    sys.path.insert(0, str(_repo_root / "src"))
 
 from examples.sec_agent.tools.edgar import (
     get_company_facts,
@@ -201,3 +211,31 @@ def build_agent(model: str = DEFAULT_MODEL) -> LlmAgent:
         instruction=COORDINATOR_INSTRUCTION,
         sub_agents=[retrieval_agent, analysis_agent, report_agent],
     )
+
+
+# ---------------------------------------------------------------------------
+# ADK CLI entry point (`adk run examples/sec_agent`)
+# ADK imports this module and looks for a `root_agent` variable.
+# ---------------------------------------------------------------------------
+
+def _setup_for_adk_run() -> LlmAgent:
+    from dotenv import load_dotenv
+    from examples.sec_agent.tools.edgar import EdgarClient, configure_client
+
+    from evalgate.config import load_config
+
+    load_dotenv(_repo_root / ".env", override=True)
+    cfg = load_config(_repo_root / "evalgate.toml")
+    cfg.validate()
+
+    client = EdgarClient(
+        mode="live",
+        fixtures_dir=str(_repo_root / cfg.edgar.fixtures_dir),
+        user_agent=cfg.edgar.user_agent,
+        requests_per_second=cfg.edgar.requests_per_second,
+    )
+    configure_client(client)
+    return build_agent()
+
+
+root_agent = _setup_for_adk_run()
