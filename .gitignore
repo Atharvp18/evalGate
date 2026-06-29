@@ -222,3 +222,6 @@ evalgate.db
 
 # macOS
 .DS_Store
+
+# Planning docs
+EVALGATE_SPEC.md
