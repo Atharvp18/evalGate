@@ -164,3 +164,60 @@ Code shell. Confirmed by using the full path. User should add `/opt/homebrew/bin
   to in the question. The report agent's instruction
   ("Use the company name and the source filing for every figure. Always
   cite.") propagated correctly through the coordinator's hand-off.
+
+---
+
+## 2026-07-15 — Phase 3: Schema, Loader, Async Runner
+
+**Key decisions:**
+
+- **Pydantic v2 `extra="forbid"` on every model.** Typos in YAML keys silently pass when using
+  dicts; Pydantic turns them into immediate, actionable errors pointing to the field name. A user
+  writing `rubrics:` instead of `rubric:` gets a message saying "Extra inputs are not permitted"
+  rather than a silent wrong-scorer configuration.
+
+- **`@model_validator(mode="after")` for cross-field scoring constraints.** The rule "if type is
+  'numeric', expected.numeric must be present" cannot be expressed as a single-field validator
+  because it reads two fields. The after-mode model validator runs after all fields are parsed and
+  typed, so `self.expected.numeric` is already a `NumericExpected | None`, not a raw dict. This
+  is the correct place for invariants that span multiple fields.
+
+- **Per-trial exception catch + continue semantics in runner.** Any exception inside `_run_single_trial`
+  is caught and stored as `failure_reason=repr(e)` in the TrialResult. The run never crashes because
+  one trial throws. This matters on the free tier: transient Gemini 429s or network blips would abort
+  a 6-case × 8-trial run without this guard. The spec explicitly requires this: "Any unexpected
+  exception in a trial is captured as a failed trial... the run as a whole must never die because one
+  trial threw."
+
+- **`asyncio.Semaphore` scoped across the whole run, not per-case.** All cases' trials compete for
+  the same pool of `max_concurrent_trials` slots. This means a large case can't monopolize concurrency
+  while a smaller case waits — all trials across all cases are scheduled fairly by asyncio's event
+  loop. The semaphore is created once in `run_cases()` and passed down to each `_run_single_trial`.
+
+- **Single-element list for the LLM call counter** (`llm_call_counter = [0]`). Python integers are
+  immutable; a closure over `count += 1` inside a coroutine only mutates the local binding. A
+  single-element list gives a mutable container that all coroutines on the same event loop share
+  without threading primitives. Alternative is `nonlocal` but that requires nesting; the list pattern
+  is more readable and common in asyncio code.
+
+- **Phase 3 placeholder scorer: always pass.** The runner sets `passed=True` for every trial that
+  doesn't time out or raise. This is correct by the phase contract: "trials with scores empty and a
+  temporary always-pass placeholder so the loop is observable end to end." Phase 4 replaces this with
+  real scorer output.
+
+- **Result types as dataclasses, not Pydantic models.** `TrialResult` and `CaseResult` are internal
+  to the framework — they are never user-facing YAML. Pydantic's validation overhead and the
+  `extra="forbid"` discipline are only needed for user input. Dataclasses are lighter and equally
+  type-safe for internal pipeline types.
+
+**Bugs encountered:** None in this phase.
+
+**Surprises:**
+
+- The `statistics.quantiles(data, n=20)[18]` approach for p95 requires at least 2 data points.
+  Added a guard for runs with a single trial.
+
+- Ruff's B904 rule flags `raise typer.Exit()` inside `except` blocks because it looks like you
+  might be losing the original exception. But `typer.Exit` is a control-flow signal, not an error
+  — the user already saw the error message on the line above. Resolved with `raise ... from None`
+  which explicitly says "I am intentionally not chaining the original exception."
