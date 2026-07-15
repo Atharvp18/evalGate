@@ -1,0 +1,21 @@
+id: msft_revenue_contains
+description: Agent retrieves Microsoft's most recent quarterly revenue; verified by contains and judge
+input: "What was Microsoft's revenue in its most recent quarter?"
+tags: [retrieval, contains, single-company]
+trials: 4
+expected:
+  contains: ["Microsoft"]
+  trajectory:
+    - tool: lookup_cik
+    - tool: get_company_facts
+scoring:
+  - type: contains
+  - type: trajectory
+  - type: judge
+    rubric: >
+      The response states Microsoft's most recent quarterly revenue with the
+      quarter identified and the source filing cited. The answer provides a
+      specific dollar amount. No invented figures.
+pass_policy: all
+thresholds:
+  pass_rate_min: 0.75

@@ -1,0 +1,15 @@
+id: nvda_cik_lookup
+description: Agent looks up Nvidia's SEC EDGAR CIK number
+input: "What is Nvidia's SEC EDGAR CIK number?"
+tags: [retrieval, lookup, trajectory]
+trials: 4
+expected:
+  contains: ["1045810"]
+  trajectory:
+    - tool: lookup_cik
+scoring:
+  - type: contains
+  - type: trajectory
+pass_policy: all
+thresholds:
+  pass_rate_min: 0.75

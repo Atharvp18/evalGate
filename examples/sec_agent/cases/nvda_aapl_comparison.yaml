@@ -1,0 +1,20 @@
+id: nvda_aapl_comparison
+description: Agent compares Nvidia and Apple revenue growth; requires retrieval + analysis sub-agents
+input: "Compare Nvidia and Apple revenue growth over the last year."
+tags: [retrieval, analysis, multi-company, judge]
+trials: 3
+expected:
+  contains: ["Nvidia", "Apple"]
+scoring:
+  - type: contains
+  - type: judge
+    rubric: >
+      The response compares Nvidia and Apple revenue growth over approximately
+      the last year, providing specific revenue figures from their most recent
+      filings for both companies. It uses the analysis agent to compute growth
+      rates as percentages and cites the source quarters. The comparison is
+      factual and does not invent numbers absent from the filings.
+pass_policy: all
+thresholds:
+  # Lower threshold — multi-company questions are harder and more variable.
+  pass_rate_min: 0.60

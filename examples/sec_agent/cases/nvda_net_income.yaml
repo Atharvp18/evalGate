@@ -1,0 +1,22 @@
+id: nvda_net_income
+description: Agent retrieves Nvidia's most recent quarterly net income from frozen fixtures
+input: "What was Nvidia's net income in its most recent quarter?"
+tags: [retrieval, numeric, single-company]
+trials: 4
+expected:
+  numeric:
+    # Q1 FY2027 (period ending 2026-04-26) from EDGAR XBRL fixtures.
+    value: 58321000000
+    tolerance_pct: 2.0
+  contains: ["Nvidia"]
+scoring:
+  - type: numeric
+  - type: contains
+  - type: judge
+    rubric: >
+      The response states Nvidia's most recent quarterly net income with the
+      correct quarter identified and the source filing cited. No invented
+      figures. The value should be approximately $58 billion.
+pass_policy: all
+thresholds:
+  pass_rate_min: 0.75
