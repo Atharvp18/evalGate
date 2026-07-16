@@ -32,9 +32,6 @@ evalgate = "evalgate.plugin"
 [tool.hatch.build.targets.wheel]
 packages = ["src/evalgate"]
 
-[tool.hatch.build.targets.editable]
-packages = ["src/evalgate", "examples"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

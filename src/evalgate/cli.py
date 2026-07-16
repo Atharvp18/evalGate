@@ -31,6 +31,16 @@ def _build_sec_agent_adapter(config: object) -> object:
     network calls are made. Live mode is reserved for the interactive REPL
     and the nightly smoke test.
     """
+    import sys
+
+    # examples.sec_agent is not an installed package — it lives at the repo root.
+    # Add the repo root to sys.path so it's importable when evalgate runs as an
+    # installed entry point (which does not add cwd to sys.path automatically).
+    # cli.py is at src/evalgate/cli.py, so three .parent calls reach the repo root.
+    _repo_root = Path(__file__).resolve().parent.parent.parent
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
+
     from dotenv import load_dotenv
     from examples.sec_agent.agent import build_agent
     from examples.sec_agent.tools.edgar import EdgarClient, configure_client
