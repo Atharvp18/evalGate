@@ -221,3 +221,54 @@ Code shell. Confirmed by using the full path. User should add `/opt/homebrew/bin
   might be losing the original exception. But `typer.Exit` is a control-flow signal, not an error
   — the user already saw the error message on the line above. Resolved with `raise ... from None`
   which explicitly says "I am intentionally not chaining the original exception."
+
+---
+
+## 2026-07-17 — Phase 4: Scorers
+
+**Key decisions:**
+
+- **Number normalizer as one regex + a scale-word table.** Candidates are extracted with a single
+  regex that matches comma-grouped or plain numbers with an optional `$` prefix and an optional
+  scale suffix (`thousand|million|billion|trillion|k|m|b|t|mn|bn`). Numbers immediately followed
+  by `%` are skipped — percentages are almost never the dollar answer being checked. Regex
+  backtracking naturally prevents false suffixes: in "300 barrels", the `b` of "barrels" fails the
+  trailing `\b`, so the match falls back to plain `300`.
+
+- **Trajectory matching is subsequence by default, exact opt-in.** Agents legitimately take extra
+  steps (sub-agent transfers, retries, extra lookups) — punishing them for that creates false
+  failures. What matters is the required calls happened in the required order. `exact: true` is
+  available for cases where any extra call is itself the bug.
+
+- **Judge never sees expected answers — rubric only.** If the judge saw the expected value it would
+  become a noisy re-implementation of the numeric scorer, and Phase 7 calibration against human
+  labels would be meaningless. The prompt is rubric + question + agent answer, demanding strict
+  JSON `{"pass": bool, "reason": str}`.
+
+- **Judge parsing: strip code fences, validate `pass` is a real bool, retry once, then fail.**
+  Gemini often wraps JSON in ```` ```json ```` fences. `_parse_judge_json` also rejects
+  `"pass": "yes"` (string, not bool) — a silent truthy-string bug otherwise. After one retry the
+  score is `passed=False, detail="judge_output_unparseable"` rather than a crashed trial.
+
+- **Scorer dispatch is a plain if/elif in `score_trial()`, not a registry.** Five fixed scorer
+  types known at schema level (a `Literal`) do not need a plugin registry; the spec's
+  "no premature abstraction" rule applies. Deterministic scorers are sync functions; only the
+  judge is async — one async dispatch function is simpler than forcing a uniform async Protocol.
+
+- **Scoring exceptions are a failed trial, not a crashed run.** The runner wraps `score_trial` in
+  its own try/except (same contract as adapter errors) — a judge network blip fails one trial
+  with the traceback stored and the run continues.
+
+- **`judge_prompt`/`judge_response` lifted to TrialResult fields.** The Phase 5 SQLite schema has
+  dedicated columns for them (calibration reads them in Phase 7), so the runner copies them out
+  of the judge's ScoreResult.extra into the trial record.
+
+**Bugs encountered:** None in this phase.
+
+**Surprises:**
+
+- The percentage-skip check must look at the text *after* `lstrip()` — "12 %" with a space is a
+  thing in model output.
+
+- `litellm` is imported lazily inside `score_judge` because its import is slow (~1s) and pulls in
+  a large dependency tree; unit tests and judge-free runs never pay that cost.

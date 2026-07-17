@@ -131,9 +131,7 @@ class EvalCase(BaseModel):
                     "scoring type 'judge' requires a rubric string in the scoring entry"
                 )
             if entry.type == "regex" and self.expected.regex is None:
-                raise ValueError(
-                    "scoring type 'regex' requires an expected.regex string"
-                )
+                raise ValueError("scoring type 'regex' requires an expected.regex string")
             if entry.type == "contains" and not self.expected.contains:
                 raise ValueError(
                     "scoring type 'contains' requires a non-empty expected.contains list"
@@ -148,16 +146,13 @@ class EvalCase(BaseModel):
 
 @dataclass
 class TrialResult:
-    """Everything produced by one trial (one call to adapter.run + scoring).
-
-    Phase 3: scores is always empty (placeholder); scorers are wired in Phase 4.
-    """
+    """Everything produced by one trial (one call to adapter.run + scoring)."""
 
     trial_idx: int
     passed: bool
     failure_reason: str | None = None
     final_text: str = ""
-    # list[ScoreResult] serialised to dicts; scorer fills this in Phase 4.
+    # list[ScoreResult] serialised to dicts via ScoreResult.to_dict().
     scores: list[dict] = field(default_factory=list)
     tool_calls: list[dict] = field(default_factory=list)
     raw_events: list[dict] = field(default_factory=list)
@@ -165,6 +160,10 @@ class TrialResult:
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float = 0.0
+    # Judge prompt/response for the (single) judge scorer, kept at trial level
+    # because Phase 7 calibration reads them from dedicated DB columns.
+    judge_prompt: str | None = None
+    judge_response: str | None = None
 
 
 @dataclass

@@ -9,6 +9,7 @@ import traceback
 from evalgate.adapter import AgentAdapter, AgentRunResult
 from evalgate.config import EvalGateConfig
 from evalgate.schema import CaseResult, EvalCase, RunReport, TrialResult
+from evalgate.scorers import score_trial
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ async def _run_single_trial(
     cost_per_input_token: float,
     cost_per_output_token: float,
 ) -> TrialResult:
-    """Run one trial: acquire semaphore → adapter.run → placeholder score.
+    """Run one trial: acquire semaphore → adapter.run → run all configured scorers.
 
     The semaphore limits total concurrent adapter calls across all cases and
     trials. This serves two purposes: (1) EDGAR politeness — replay mode is
@@ -36,7 +37,7 @@ async def _run_single_trial(
     async with semaphore:
         # Cost guardrail: count this trial as one LLM call (the agent itself
         # triggers multiple sub-agent LLM calls internally, but we track at
-        # the adapter.run() level here; judge calls will be added in Phase 4).
+        # the adapter.run() level; judge calls are counted inside score_trial).
         llm_call_counter[0] += 1
         if llm_call_counter[0] > config.max_llm_calls_per_run:
             logger.error(
@@ -87,12 +88,51 @@ async def _run_single_trial(
             + result.output_tokens * cost_per_output_token
         )
 
-        # Phase 3 placeholder: all scorers are not wired yet; every successful
-        # trial is marked passed=True with an empty scores list. Phase 4 replaces
-        # this with real scorer output.
+        # Score the trial. Scoring failures (e.g. judge network errors) are a
+        # failed trial, never a crashed run — same contract as adapter errors.
+        try:
+            scores = await score_trial(case, result, config, llm_call_counter)
+        except Exception:
+            tb = traceback.format_exc()
+            logger.error("Scoring trial %d for case %r failed:\n%s", trial_idx, case.id, tb)
+            return TrialResult(
+                trial_idx=trial_idx,
+                passed=False,
+                failure_reason=f"scoring error: {tb.strip()}",
+                final_text=result.final_text,
+                tool_calls=[{"name": tc.name, "args": tc.args} for tc in result.tool_calls],
+                raw_events=result.raw_events,
+                latency_ms=result.latency_ms,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                cost_usd=cost,
+            )
+
+        if case.pass_policy == "all":
+            passed = all(s.passed for s in scores)
+        else:
+            passed = any(s.passed for s in scores)
+        failure_reason = (
+            None
+            if passed
+            else "; ".join(f"{s.scorer_type}: {s.detail}" for s in scores if not s.passed)
+        )
+
+        # Surface the judge prompt/response (at most one judge per case) so the
+        # store can write them to their dedicated columns in Phase 5.
+        judge_prompt = judge_response = None
+        for s in scores:
+            if s.scorer_type == "judge" and "judge_prompt" in s.extra:
+                judge_prompt = s.extra["judge_prompt"]
+                judge_response = s.extra["judge_response"]
+
         return TrialResult(
             trial_idx=trial_idx,
-            passed=True,
+            passed=passed,
+            failure_reason=failure_reason,
+            scores=[s.to_dict() for s in scores],
+            judge_prompt=judge_prompt,
+            judge_response=judge_response,
             final_text=result.final_text,
             tool_calls=[{"name": tc.name, "args": tc.args} for tc in result.tool_calls],
             raw_events=result.raw_events,

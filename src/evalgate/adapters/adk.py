@@ -65,9 +65,7 @@ class ADKAdapter:
         output_tokens = 0
         raw_events: list[dict] = []
 
-        message = genai_types.Content(
-            role="user", parts=[genai_types.Part(text=query)]
-        )
+        message = genai_types.Content(role="user", parts=[genai_types.Part(text=query)])
 
         start = time.perf_counter()
 
@@ -78,9 +76,7 @@ class ADKAdapter:
         ):
             # 1) Tool calls — every function call in the event.
             for fc in event.get_function_calls():
-                tool_calls.append(
-                    ToolCall(name=fc.name or "", args=dict(fc.args or {}))
-                )
+                tool_calls.append(ToolCall(name=fc.name or "", args=dict(fc.args or {})))
 
             # 2) Final answer — the last is_final_response event's text.
             if event.is_final_response() and event.content:
@@ -116,8 +112,7 @@ def _event_to_dict(event: Any) -> dict:
     round-trip cleanly to JSON.
     """
     function_calls = [
-        {"name": fc.name, "args": dict(fc.args or {})}
-        for fc in event.get_function_calls()
+        {"name": fc.name, "args": dict(fc.args or {})} for fc in event.get_function_calls()
     ]
     function_responses = [
         {"name": fr.name, "response": _safe_jsonable(fr.response)}

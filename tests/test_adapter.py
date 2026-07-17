@@ -59,6 +59,7 @@ def _async_iter(events: list[Any]):
     async def gen(**_kwargs):
         for e in events:
             yield e
+
     return gen
 
 

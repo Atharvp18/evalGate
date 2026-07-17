@@ -87,6 +87,16 @@ def _print_run_report(report: object, verbose: bool = False) -> None:  # type: i
 
     typer.echo("=" * len(header))
 
+    # Failure details: one line per failed trial so the user sees which scorer
+    # failed and why without needing the DB (full detail lands there in Phase 5).
+    for cr in report.cases:
+        for t in cr.trials:
+            if not t.passed and t.failure_reason:
+                reason = t.failure_reason.replace("\n", " ")
+                if not verbose:
+                    reason = reason[:160]
+                typer.echo(f"  FAIL {cr.case_id} trial {t.trial_idx}: {reason}")
+
     # Cost / token summary.
     in_tok = report.total_input_tokens
     out_tok = report.total_output_tokens
