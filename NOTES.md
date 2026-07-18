@@ -296,3 +296,46 @@ Code shell. Confirmed by using the full path. User should add `/opt/homebrew/bin
 agent uses outdated or wrong-concept Apple data for year-over-year growth. Single-company Apple
 retrieval passes, so the suspect is the fixture trim not retaining year-ago quarters. To
 investigate; this is the framework catching a real agent defect.
+
+---
+
+## 2026-07-19 — Phase 5: Stats, Store, Report
+
+**Key decisions:**
+
+- **Wilson interval implemented directly; scipy only supplies the z-value.** The formula is six
+  lines. Wilson beats the naive p̂ ± 1.96·SE interval in exactly our regime (small N, extreme
+  rates): naive at 5/5 gives a zero-width interval — false certainty from five samples — and can
+  exceed [0, 1]. Wilson pulls the centre toward 0.5 and always stays in bounds. Unit-tested
+  against hand-computed values (8/10 → (0.490, 0.943)).
+
+- **Flaky requires BOTH partial passes AND CI width > threshold.** 15/20 passes has a CI width of
+  ~0.36 — mostly reliable, not flaky. 2/4 has width ~0.70 — genuinely too noisy to trust either
+  verdict. Flaky is a distinct third verdict so a human investigates instead of trusting pass or
+  fail.
+
+- **`load_run` returns trial rows under `"trial_rows"`, not `"trials"`.** The case_results row
+  already has a `trials` column (the count); reusing the key would silently clobber it in the
+  merged dict. Found while writing the round-trip test — the test asserted both the count and the
+  rows through the same key.
+
+- **One transaction per run (`with conn:`).** A crash mid-save leaves the DB with no partial run
+  rather than a run with half its trials. sqlite3's context manager commits on success, rolls
+  back on exception — no explicit BEGIN/COMMIT needed.
+
+- **`config_json` serialised with `default=lambda o: o.__dict__`.** EvalGateConfig is nested
+  dataclasses; this one-liner flattens them without pulling in a serialisation library.
+
+**Bugs encountered:**
+
+- **p50 > p95 in the report summary.** Hand-rolled percentile indexing (`lats[int(len*0.95)-1]`)
+  returns index 0 — the *minimum* — for a 2-element list. Spotted because the printed p50
+  (4595 ms) exceeded p95 (2960 ms), which is impossible. Fix: `statistics.median` /
+  `statistics.quantiles`, same as the run summary already used. Lesson: don't hand-roll
+  percentile math when stdlib has it.
+
+**Surprises:**
+
+- sqlite3's `conn.executescript` cannot run inside a transaction, but running it on every
+  `connect()` is idempotent thanks to `IF NOT EXISTS` — no separate migration step needed at
+  this scale.

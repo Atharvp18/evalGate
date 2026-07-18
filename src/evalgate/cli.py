@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import statistics
 from pathlib import Path
@@ -127,6 +128,7 @@ def run(
     from evalgate.config import load_config
     from evalgate.loader import load_cases
     from evalgate.runner import run_cases
+    from evalgate.store import connect, save_run
 
     cfg = load_config()
     try:
@@ -166,6 +168,11 @@ def run(
 
     _print_run_report(report, verbose=verbose)
 
+    conn = connect(cfg.db_path)
+    new_run_id = save_run(conn, report, eval_cases, cfg)
+    conn.close()
+    typer.echo(f"\nSaved as run {new_run_id}. View with: evalgate report --run-id {new_run_id}")
+
 
 @app.command()
 def report(
@@ -173,7 +180,73 @@ def report(
     latest: bool = typer.Option(False, "--latest", help="Report on the latest run."),
 ) -> None:
     """Print a report for a stored run."""
-    typer.echo("evalgate report — not implemented yet (Phase 5)")
+    from evalgate.config import load_config
+    from evalgate.store import connect, latest_run_id, load_run
+
+    cfg = load_config()
+    conn = connect(cfg.db_path)
+
+    if run_id is None:
+        run_id = latest_run_id(conn)
+        if run_id is None:
+            typer.echo("No runs stored yet. Run `evalgate run` first.", err=True)
+            raise typer.Exit(2)
+
+    try:
+        data = load_run(conn, run_id)
+    except ValueError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(2) from None  # noqa: B904
+    finally:
+        conn.close()
+
+    run = data["run"]
+    typer.echo(
+        f"Run {run['id']}  |  {run['started_at']}  |  agent: {run['agent_name']}"
+        f"  |  git: {(run['git_sha'] or '?')[:8]} ({run['git_branch'] or '?'})"
+    )
+
+    header = (
+        f"{'CASE':<35} {'TRIALS':>6} {'PASS':>5} {'RATE':>6} "
+        f"{'CI 95%':>14} {'FLAKY':>6} {'THRESH':>7}"
+    )
+    typer.echo("=" * len(header))
+    typer.echo(header)
+    typer.echo("=" * len(header))
+    for cr in data["cases"]:
+        ci = f"[{cr['ci_low']:.2f}, {cr['ci_high']:.2f}]"
+        typer.echo(
+            f"{cr['case_id']:<35} {cr['trials']:>6} {cr['passes']:>5} "
+            f"{cr['pass_rate']:>5.0%} {ci:>14} "
+            f"{'yes' if cr['flaky'] else '':>6} "
+            f"{'ok' if cr['passed_threshold'] else 'FAIL':>7}"
+        )
+    typer.echo("=" * len(header))
+
+    # Per-trial scorer details for failed trials.
+    for cr in data["cases"]:
+        for t in cr["trial_rows"]:
+            if t["passed"]:
+                continue
+            typer.echo(f"\n{cr['case_id']} trial {t['trial_idx']} FAILED:")
+            for s in json.loads(t["scores_json"]):
+                mark = "pass" if s["passed"] else "FAIL"
+                typer.echo(f"  [{mark}] {s['scorer_type']}: {s['detail'][:200]}")
+            if not json.loads(t["scores_json"]) and t["failure_reason"]:
+                typer.echo(f"  {t['failure_reason'][:300]}")
+
+    total_cost = sum(t["cost_usd"] or 0 for cr in data["cases"] for t in cr["trial_rows"])
+    in_tok = sum(t["input_tokens"] or 0 for cr in data["cases"] for t in cr["trial_rows"])
+    out_tok = sum(t["output_tokens"] or 0 for cr in data["cases"] for t in cr["trial_rows"])
+    lats = sorted(
+        t["latency_ms"] for cr in data["cases"] for t in cr["trial_rows"] if t["latency_ms"]
+    )
+    p50 = statistics.median(lats) if lats else 0
+    p95 = statistics.quantiles(lats, n=20)[18] if len(lats) >= 2 else (lats[0] if lats else 0)
+    typer.echo(
+        f"\nTokens: {in_tok:,} in / {out_tok:,} out  |  Est. cost: ${total_cost:.4f}"
+        f"  |  latency p50: {p50:.0f} ms, p95: {p95:.0f} ms"
+    )
 
 
 @baseline_app.command("save")
