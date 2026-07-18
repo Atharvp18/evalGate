@@ -29,6 +29,11 @@ Question given to the agent:
 Agent's final answer:
 {final_text}
 
+Judge ONLY against the rubric. Do not use your own knowledge of current dates
+or financial figures — the agent reads live regulatory filings that may be more
+recent than your training data, so dates or numbers that look unfamiliar or
+"in the future" to you are not evidence of invention.
+
 Does the answer satisfy the rubric? Reply with ONLY strict JSON, no other text:
 {{"pass": true or false, "reason": "one short sentence"}}"""
 
@@ -73,6 +78,8 @@ async def score_judge(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
+            # Free-tier 429s are common; litellm retries with backoff internally.
+            num_retries=2,
         )
         raw = response.choices[0].message.content or ""
         parsed = _parse_judge_json(raw)

@@ -52,36 +52,50 @@ async def _run_single_trial(
                 failure_reason=f"max_llm_calls_exceeded (limit={config.max_llm_calls_per_run})",
             )
 
-        try:
-            result: AgentRunResult = await asyncio.wait_for(
-                adapter.run(case.input),
-                timeout=float(config.trial_timeout_s),
-            )
-        except TimeoutError:
-            logger.warning(
-                "Trial %d for case %r timed out after %ds",
-                trial_idx,
-                case.id,
-                config.trial_timeout_s,
-            )
-            return TrialResult(
-                trial_idx=trial_idx,
-                passed=False,
-                failure_reason=f"timeout after {config.trial_timeout_s}s",
-            )
-        except Exception:
-            tb = traceback.format_exc()
-            logger.error(
-                "Trial %d for case %r raised an exception:\n%s",
-                trial_idx,
-                case.id,
-                tb,
-            )
-            return TrialResult(
-                trial_idx=trial_idx,
-                passed=False,
-                failure_reason=tb.strip(),
-            )
+        # One retry on rate-limit errors: the Gemini free tier allows only a
+        # handful of requests per minute, so a single 429 usually clears after
+        # waiting out the window. Any other exception fails the trial directly.
+        for attempt in range(2):
+            try:
+                result: AgentRunResult = await asyncio.wait_for(
+                    adapter.run(case.input),
+                    timeout=float(config.trial_timeout_s),
+                )
+                break
+            except TimeoutError:
+                logger.warning(
+                    "Trial %d for case %r timed out after %ds",
+                    trial_idx,
+                    case.id,
+                    config.trial_timeout_s,
+                )
+                return TrialResult(
+                    trial_idx=trial_idx,
+                    passed=False,
+                    failure_reason=f"timeout after {config.trial_timeout_s}s",
+                )
+            except Exception:
+                tb = traceback.format_exc()
+                is_rate_limit = "RESOURCE_EXHAUSTED" in tb or "429" in tb
+                if is_rate_limit and attempt == 0:
+                    logger.warning(
+                        "Trial %d for case %r hit a rate limit; retrying in 60s",
+                        trial_idx,
+                        case.id,
+                    )
+                    await asyncio.sleep(60)
+                    continue
+                logger.error(
+                    "Trial %d for case %r raised an exception:\n%s",
+                    trial_idx,
+                    case.id,
+                    tb,
+                )
+                return TrialResult(
+                    trial_idx=trial_idx,
+                    passed=False,
+                    failure_reason=tb.strip(),
+                )
 
         cost = (
             result.input_tokens * cost_per_input_token

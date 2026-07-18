@@ -272,3 +272,27 @@ Code shell. Confirmed by using the full path. User should add `/opt/homebrew/bin
 
 - `litellm` is imported lazily inside `score_judge` because its import is slow (~1s) and pulls in
   a large dependency tree; unit tests and judge-free runs never pay that cost.
+
+---
+
+## 2026-07-18 — Phase 4 addendum: free-tier reality check
+
+**Bugs encountered (after first live scored run):**
+
+- **All trials 429'd with `RESOURCE_EXHAUSTED`.** Two separate Gemini free-tier quotas were hit:
+  first the per-minute cap (5 req/min — one trial alone makes ~4 model calls, and 4 concurrent
+  trials blew it instantly), then the per-day cap (20 req/day for `gemini-2.5-flash`), which no
+  retry can beat. Fixes: `max_concurrent_trials` 4 → 1, one 60s-backoff retry on rate-limit
+  tracebacks in the runner, `num_retries=2` on judge calls, and — the real fix — switching agent
+  and judge to `gemini-3.1-flash-lite`, which has a far larger free daily quota.
+  (`gemini-2.5-flash-lite` 404s: "no longer available to new users".)
+
+- **Judge flagged correct answers as "invented future dates".** The judge model's training data
+  predates the 2026 filing dates in the fixtures, so it ruled them fabricated. Fix: a prompt line
+  telling the judge to judge only against the rubric and never use its own knowledge of dates or
+  figures. Lesson: an LLM judge silently imports its own world model unless explicitly fenced.
+
+**Open finding:** `nvda_aapl_comparison` fails consistently (0/3 trials) — the judge reports the
+agent uses outdated or wrong-concept Apple data for year-over-year growth. Single-company Apple
+retrieval passes, so the suspect is the fixture trim not retaining year-ago quarters. To
+investigate; this is the framework catching a real agent defect.

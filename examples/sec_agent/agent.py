@@ -37,9 +37,10 @@ from examples.sec_agent.tools.edgar import (
 )
 from google.adk.agents import LlmAgent
 
-# Default model. Picked because the AI Studio free tier currently includes
-# gemini-2.5-flash. Override per-agent for experimentation.
-DEFAULT_MODEL = "gemini-2.5-flash"
+# Default model. gemini-2.5-flash's free tier allows only 20 requests/day —
+# far too few for eval runs. gemini-3.1-flash-lite has a much larger free
+# quota. Override per-agent for experimentation.
+DEFAULT_MODEL = "gemini-3.1-flash-lite"
 
 
 # ---------------------------------------------------------------------------
