@@ -157,6 +157,27 @@ def save_run(
     return run_id
 
 
+def save_baseline(conn: sqlite3.Connection, name: str, run_id: int) -> None:
+    """Point baseline `name` at `run_id`, replacing any previous pointer.
+
+    Raises ValueError if the run id does not exist — a baseline pointing at
+    nothing would make every future compare fail confusingly.
+    """
+    if conn.execute("SELECT 1 FROM runs WHERE id = ?", (run_id,)).fetchone() is None:
+        raise ValueError(f"run {run_id} not found in the database")
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO baselines (name, run_id, saved_at) VALUES (?, ?, ?)",
+            (name, run_id, datetime.now(UTC).isoformat()),
+        )
+
+
+def get_baseline_run_id(conn: sqlite3.Connection, name: str) -> int | None:
+    """Return the run id a baseline points at, or None if the name is unknown."""
+    row = conn.execute("SELECT run_id FROM baselines WHERE name = ?", (name,)).fetchone()
+    return row["run_id"] if row else None
+
+
 def latest_run_id(conn: sqlite3.Connection) -> int | None:
     row = conn.execute("SELECT MAX(id) AS id FROM runs").fetchone()
     return row["id"]

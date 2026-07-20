@@ -1,0 +1,17 @@
+id: flaky_ticker_only
+description: >
+  Deliberately flaky-ish case — demands a bare one-word answer. Agents love
+  adding context sentences, so this passes only sometimes; exists to exercise
+  honest flakiness reporting.
+input: >
+  Which company has SEC CIK number 0001045810? Reply with ONLY its stock
+  ticker symbol — a single word, nothing else.
+tags: [formatting, regex, flaky-by-design]
+trials: 4
+expected:
+  regex: '^\s*\**NVDA\**\.?\s*$'
+scoring:
+  - type: regex
+pass_policy: all
+thresholds:
+  pass_rate_min: 0.50

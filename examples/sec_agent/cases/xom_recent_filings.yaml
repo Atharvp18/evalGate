@@ -1,0 +1,16 @@
+id: xom_recent_filings
+description: Agent lists Exxon Mobil's recent 10-Q filings via get_recent_filings
+input: "What are Exxon Mobil's most recent quarterly (10-Q) filings?"
+tags: [retrieval, trajectory, filings]
+trials: 3
+expected:
+  contains: ["Exxon", "10-Q"]
+  trajectory:
+    - tool: lookup_cik
+    - tool: get_recent_filings
+scoring:
+  - type: contains
+  - type: trajectory
+pass_policy: all
+thresholds:
+  pass_rate_min: 0.75

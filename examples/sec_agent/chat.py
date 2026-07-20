@@ -22,11 +22,10 @@ from dotenv import load_dotenv
 
 load_dotenv(_repo_root / ".env", override=True)
 
-from examples.sec_agent.agent import build_agent
-from examples.sec_agent.tools.edgar import EdgarClient, configure_client
-
 from evalgate.adapters.adk import ADKAdapter
 from evalgate.config import load_config
+from examples.sec_agent.agent import build_agent
+from examples.sec_agent.tools.edgar import EdgarClient, configure_client
 
 
 async def main() -> None:

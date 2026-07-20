@@ -13,6 +13,28 @@ from evalgate.schema import EvalCase
 logger = logging.getLogger(__name__)
 
 
+def load_case_file(path: Path) -> EvalCase:
+    """Parse and validate a single YAML case file.
+
+    Raises:
+        ValueError: If the YAML is malformed or fails schema validation.
+    """
+    try:
+        with path.open() as f:
+            raw = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise ValueError(f"YAML parse error in {path.name}: {e}") from e
+
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path.name}: expected a YAML mapping at the top level")
+
+    try:
+        return EvalCase(**raw)
+    except ValidationError as e:
+        # Re-raise with the filename so the user knows which file to fix.
+        raise ValueError(f"Validation error in {path.name}:\n{e}") from e
+
+
 def load_cases(cases_dir: Path | str) -> list[EvalCase]:
     """Load and validate all YAML eval case files from a directory.
 
@@ -46,20 +68,7 @@ def load_cases(cases_dir: Path | str) -> list[EvalCase]:
 
     for path in unique_files:
         logger.debug("Loading case file: %s", path.name)
-        try:
-            with path.open() as f:
-                raw = yaml.safe_load(f)
-        except yaml.YAMLError as e:
-            raise ValueError(f"YAML parse error in {path.name}: {e}") from e
-
-        if not isinstance(raw, dict):
-            raise ValueError(f"{path.name}: expected a YAML mapping at the top level")
-
-        try:
-            case = EvalCase(**raw)
-        except ValidationError as e:
-            # Re-raise with the filename so the user knows which file to fix.
-            raise ValueError(f"Validation error in {path.name}:\n{e}") from e
+        case = load_case_file(path)
 
         if case.id in seen_ids:
             raise ValueError(

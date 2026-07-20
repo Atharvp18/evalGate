@@ -1,0 +1,18 @@
+id: googl_amzn_comparison
+description: Agent compares Alphabet and Amazon quarterly net income; requires retrieval + analysis
+input: "Which had higher net income in its most recent quarter, Alphabet or Amazon, and by how much?"
+tags: [retrieval, analysis, multi-company, judge]
+trials: 3
+expected:
+  contains: ["Alphabet", "Amazon"]
+scoring:
+  - type: contains
+  - type: judge
+    rubric: >
+      The response states each company's most recent quarterly net income with
+      specific figures, names which one is higher, and quantifies the difference.
+      Figures come from the retrieved filings and are cited; nothing is invented.
+pass_policy: all
+thresholds:
+  # Lower threshold — multi-company questions are harder and more variable.
+  pass_rate_min: 0.60

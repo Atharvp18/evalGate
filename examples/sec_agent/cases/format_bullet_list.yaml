@@ -1,0 +1,19 @@
+id: format_bullet_list
+description: >
+  Formatting-sensitive case — the answer must be a bulleted list, one company
+  per line. Catches report-agent prompt changes that break output structure.
+input: >
+  List the most recent quarterly revenue of Apple, Microsoft, and Nvidia as a
+  bulleted list with one line per company.
+tags: [formatting, regex, multi-company]
+trials: 4
+expected:
+  contains: ["Apple", "Microsoft", "Nvidia"]
+  # At least three lines starting with a markdown bullet.
+  regex: '(?ms)^\s*[-*•].+$\n^\s*[-*•].+$\n(?:.*\n)*?^\s*[-*•].+$'
+scoring:
+  - type: contains
+  - type: regex
+pass_policy: all
+thresholds:
+  pass_rate_min: 0.60

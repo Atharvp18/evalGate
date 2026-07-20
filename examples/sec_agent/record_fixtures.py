@@ -19,9 +19,8 @@ _repo_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_repo_root / "src"))
 sys.path.insert(0, str(_repo_root))
 
-from examples.sec_agent.tools.edgar import EdgarClient, configure_client, lookup_cik
-
 from evalgate.config import load_config
+from examples.sec_agent.tools.edgar import EdgarClient, configure_client, lookup_cik
 
 TICKERS = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "JPM", "JNJ", "XOM"]
 

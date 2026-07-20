@@ -6,7 +6,14 @@ import json
 
 from evalgate.config import EvalGateConfig
 from evalgate.schema import CaseResult, EvalCase, RunReport, TrialResult
-from evalgate.store import connect, latest_run_id, load_run, save_run
+from evalgate.store import (
+    connect,
+    get_baseline_run_id,
+    latest_run_id,
+    load_run,
+    save_baseline,
+    save_run,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -102,6 +109,32 @@ def test_load_missing_run_raises():
         raise AssertionError("expected ValueError")
     except ValueError as e:
         assert "999" in str(e)
+
+
+def test_baseline_save_and_get():
+    conn = connect(":memory:")
+    run_id = save_run(conn, _report(), [_case()], EvalGateConfig())
+    assert get_baseline_run_id(conn, "main") is None
+    save_baseline(conn, "main", run_id)
+    assert get_baseline_run_id(conn, "main") == run_id
+
+
+def test_baseline_repoints_on_resave():
+    conn = connect(":memory:")
+    first = save_run(conn, _report(), [_case()], EvalGateConfig())
+    second = save_run(conn, _report(), [_case()], EvalGateConfig())
+    save_baseline(conn, "main", first)
+    save_baseline(conn, "main", second)
+    assert get_baseline_run_id(conn, "main") == second
+
+
+def test_baseline_rejects_missing_run():
+    conn = connect(":memory:")
+    try:
+        save_baseline(conn, "main", 42)
+        raise AssertionError("expected ValueError")
+    except ValueError as e:
+        assert "42" in str(e)
 
 
 def test_flaky_flag_persisted():

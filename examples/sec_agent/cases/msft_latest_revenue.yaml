@@ -1,0 +1,22 @@
+id: msft_latest_revenue
+description: Agent retrieves Microsoft's most recent quarterly revenue from frozen fixtures
+input: "What was Microsoft's revenue in its most recent quarter?"
+tags: [retrieval, numeric, single-company]
+trials: 4
+expected:
+  numeric:
+    # Quarter ending 2026-03-31 from EDGAR XBRL fixtures
+    # (RevenueFromContractWithCustomerExcludingAssessedTax, 10-Q filed 2026-04-29).
+    value: 82886000000
+    tolerance_pct: 2.0
+  contains: ["Microsoft"]
+  trajectory:
+    - tool: lookup_cik
+    - tool: get_company_facts
+      args_contain: {cik: "0000789019"}
+scoring:
+  - type: numeric
+  - type: trajectory
+pass_policy: all
+thresholds:
+  pass_rate_min: 0.75

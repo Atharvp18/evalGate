@@ -30,12 +30,13 @@ if str(_repo_root) not in sys.path:
 if str(_repo_root / "src") not in sys.path:
     sys.path.insert(0, str(_repo_root / "src"))
 
+from google.adk.agents import LlmAgent
+
 from examples.sec_agent.tools.edgar import (
     get_company_facts,
     get_recent_filings,
     lookup_cik,
 )
-from google.adk.agents import LlmAgent
 
 # Default model. gemini-2.5-flash's free tier allows only 20 requests/day —
 # far too few for eval runs. gemini-3.1-flash-lite has a much larger free
@@ -221,9 +222,9 @@ def build_agent(model: str = DEFAULT_MODEL) -> LlmAgent:
 
 def _setup_for_adk_run() -> LlmAgent:
     from dotenv import load_dotenv
-    from examples.sec_agent.tools.edgar import EdgarClient, configure_client
 
     from evalgate.config import load_config
+    from examples.sec_agent.tools.edgar import EdgarClient, configure_client
 
     load_dotenv(_repo_root / ".env", override=True)
     cfg = load_config(_repo_root / "evalgate.toml")

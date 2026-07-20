@@ -1,0 +1,17 @@
+id: flaky_two_decimals
+description: >
+  Deliberately flaky-ish case — demands revenue in billions with exactly two
+  decimal places. Models comply only sometimes; exists to exercise honest
+  flakiness reporting.
+input: >
+  What was Nvidia's revenue in its most recent quarter? State it in billions
+  of dollars with exactly two decimal places, e.g. "$12.34 billion".
+tags: [formatting, regex, flaky-by-design]
+trials: 4
+expected:
+  regex: '\$\d+\.\d{2} billion'
+scoring:
+  - type: regex
+pass_policy: all
+thresholds:
+  pass_rate_min: 0.50

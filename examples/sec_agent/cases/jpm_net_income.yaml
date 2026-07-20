@@ -1,0 +1,22 @@
+id: jpm_net_income
+description: Agent retrieves JPMorgan's most recent quarterly net income
+input: "What was JPMorgan Chase's net income in its latest 10-Q?"
+tags: [retrieval, single-company, judge]
+trials: 3
+expected:
+  contains: ["JPMorgan"]
+  trajectory:
+    - tool: lookup_cik
+    - tool: get_company_facts
+      args_contain: {cik: "0000019617"}
+scoring:
+  - type: contains
+  - type: trajectory
+  - type: judge
+    rubric: >
+      The response states JPMorgan Chase's net income for its most recent
+      quarter with a specific dollar figure, identifies the quarter, and cites
+      the source filing. No invented figures.
+pass_policy: all
+thresholds:
+  pass_rate_min: 0.75

@@ -255,7 +255,25 @@ def baseline_save(
     run_id: int = typer.Option(None, "--run-id", help="Run ID to save (default: latest)."),
 ) -> None:
     """Save a run as a named baseline."""
-    typer.echo("evalgate baseline save — not implemented yet (Phase 6)")
+    from evalgate.config import load_config
+    from evalgate.store import connect, latest_run_id, save_baseline
+
+    cfg = load_config()
+    conn = connect(cfg.db_path)
+    try:
+        if run_id is None:
+            run_id = latest_run_id(conn)
+            if run_id is None:
+                typer.echo("No runs stored yet. Run `evalgate run` first.", err=True)
+                raise typer.Exit(2)
+        try:
+            save_baseline(conn, name, run_id)
+        except ValueError as e:
+            typer.echo(f"Error: {e}", err=True)
+            raise typer.Exit(2) from None  # noqa: B904
+    finally:
+        conn.close()
+    typer.echo(f"Baseline {name!r} now points at run {run_id}.")
 
 
 @app.command()
@@ -264,7 +282,69 @@ def compare(
     json_output: bool = typer.Option(False, "--json", help="Output as JSON."),
 ) -> None:
     """Compare the latest run against a baseline and exit 1 if regressions found."""
-    typer.echo("evalgate compare — not implemented yet (Phase 6)")
+    from evalgate.compare import compare_runs, has_regressions
+    from evalgate.config import load_config
+    from evalgate.store import connect, get_baseline_run_id, latest_run_id, load_run
+
+    cfg = load_config()
+    conn = connect(cfg.db_path)
+    try:
+        base_run_id = get_baseline_run_id(conn, baseline)
+        if base_run_id is None:
+            typer.echo(
+                f"No baseline named {baseline!r}. Save one with: "
+                f"evalgate baseline save --name {baseline}",
+                err=True,
+            )
+            raise typer.Exit(2)
+        cur_run_id = latest_run_id(conn)
+        if cur_run_id is None:
+            typer.echo("No runs stored yet. Run `evalgate run` first.", err=True)
+            raise typer.Exit(2)
+        if cur_run_id == base_run_id:
+            typer.echo(
+                f"Latest run ({cur_run_id}) IS the baseline run — nothing to compare. "
+                "Run `evalgate run` first.",
+                err=True,
+            )
+            raise typer.Exit(2)
+
+        base_cases = load_run(conn, base_run_id)["cases"]
+        cur_cases = load_run(conn, cur_run_id)["cases"]
+    finally:
+        conn.close()
+
+    comparisons = compare_runs(base_cases, cur_cases, cfg.regression_margin)
+
+    if json_output:
+        typer.echo(
+            json.dumps(
+                {
+                    "baseline": baseline,
+                    "baseline_run_id": base_run_id,
+                    "current_run_id": cur_run_id,
+                    "regressions": has_regressions(comparisons),
+                    "cases": [c.to_dict() for c in comparisons],
+                },
+                indent=2,
+            )
+        )
+    else:
+        typer.echo(f"Baseline {baseline!r} (run {base_run_id}) vs current (run {cur_run_id})\n")
+        header = f"{'CASE':<35} {'BASE':>6} {'CURR':>6} {'CURR CI 95%':>14}  VERDICT"
+        typer.echo(header)
+        typer.echo("=" * len(header))
+        for c in comparisons:
+            base_s = f"{c.baseline_rate:.0%}" if c.baseline_rate is not None else "-"
+            cur_s = f"{c.current_rate:.0%}" if c.current_rate is not None else "-"
+            ci_s = f"[{c.current_ci[0]:.2f}, {c.current_ci[1]:.2f}]" if c.current_ci else "-"
+            mark = "REGRESSED" if c.verdict == "regressed" else c.verdict
+            typer.echo(f"{c.case_id:<35} {base_s:>6} {cur_s:>6} {ci_s:>14}  {mark}")
+        removed = [c.case_id for c in comparisons if c.verdict == "removed"]
+        if removed:
+            typer.echo(f"\nWarning: case(s) removed since baseline: {', '.join(removed)}")
+
+    raise typer.Exit(1 if has_regressions(comparisons) else 0)
 
 
 @app.command()
