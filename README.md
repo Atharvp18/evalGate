@@ -65,11 +65,11 @@ ruff check src/ tests/ examples/
 | 0 | Scaffold — pyproject, config, CLI stub | ✅ Done |
 | 1 | EDGAR client with live/replay/record modes + fixtures | ✅ Done |
 | 2 | SEC agent (ADK coordinator + 3 sub-agents) + ADKAdapter | ✅ Done |
-| 3 | Schema, YAML loader, async N-trial runner | 🔜 Next |
-| 4 | Scorers (contains, regex, numeric, trajectory, judge) | — |
-| 5 | Wilson CI stats, SQLite store, `evalgate report` | — |
-| 6 | pytest plugin, baseline save, regression gate | — |
-| 7 | Judge calibration (Cohen's kappa) | — |
+| 3 | Schema, YAML loader, async N-trial runner | ✅ Done |
+| 4 | Scorers (contains, regex, numeric, trajectory, judge) | ✅ Done |
+| 5 | Wilson CI stats, SQLite store, `evalgate report` | ✅ Done |
+| 6 | pytest plugin, baseline save, regression gate | ✅ Done |
+| 7 | Judge calibration (Cohen's kappa) | 🔜 Next |
 | 8 | GitHub Actions CI gate, trace mining, dashboard | — |
 | 9 | Regression-injection study + release polish | — |
 

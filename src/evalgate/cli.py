@@ -350,11 +350,71 @@ def compare(
 @app.command()
 def calibrate(
     labels: str = typer.Option(..., "--labels", help="Path to human_labels.csv."),
-    judge_model: str = typer.Option(None, "--judge-model", help="Override judge model string."),
+    judge_model: str = typer.Option(
+        None, "--judge-model", help="Judge model label for the report."
+    ),
     export: bool = typer.Option(False, "--export", help="Export unlabelled CSV for human review."),
+    sample_size: int = typer.Option(100, "--sample-size", help="Trials to sample when exporting."),
+    db: str = typer.Option(None, "--db", help="SQLite DB path (overrides evalgate.toml)."),
+    report: str = typer.Option(
+        "calibration_report.md", "--report", help="Output path for the markdown report."
+    ),
 ) -> None:
-    """Compute judge-vs-human agreement (Cohen's kappa) from labelled trials."""
-    typer.echo("evalgate calibrate — not implemented yet (Phase 7)")
+    """Export judge trials for labelling, or compute judge-vs-human agreement from labels."""
+    from evalgate.calibrate import (
+        compute_calibration,
+        export_for_labeling,
+        load_labels,
+        write_calibration_report,
+    )
+    from evalgate.config import load_config
+    from evalgate.store import connect
+
+    cfg = load_config()
+    if db:
+        cfg.db_path = db
+
+    if export:
+        conn = connect(cfg.db_path)
+        try:
+            n = export_for_labeling(conn, labels, sample_size=sample_size)
+        finally:
+            conn.close()
+        if n == 0:
+            typer.echo(
+                "No judge-scored trials found in the DB. Run `evalgate run` with judge-scored "
+                "cases first.",
+                err=True,
+            )
+            raise typer.Exit(2)
+        typer.echo(
+            f"Exported {n} trial(s) to {labels}. Fill in the `human_label` column (1/0) for each "
+            f"row, then rerun without --export to compute agreement."
+        )
+        return
+
+    labels_path = Path(labels)
+    if not labels_path.exists():
+        typer.echo(f"Labels file not found: {labels}", err=True)
+        raise typer.Exit(2)
+
+    rows, skipped = load_labels(labels_path)
+    if not rows:
+        typer.echo(
+            f"No labelled rows found in {labels} (`human_label` column is blank for all rows).",
+            err=True,
+        )
+        raise typer.Exit(2)
+
+    result = compute_calibration(rows)
+    write_calibration_report(result, judge_model or cfg.judge_model, report)
+
+    blank_note = f"  ({skipped} blank rows skipped)" if skipped else ""
+    typer.echo(f"Labelled trials: {result.n}{blank_note}")
+    typer.echo(f"Agreement: {result.agreement_pct:.1%}")
+    typer.echo(f"Cohen's kappa: {result.kappa:.3f}")
+    typer.echo(f"Disagreements: {len(result.disagreements)}")
+    typer.echo(f"\nFull report written to {report}")
 
 
 @app.command(name="mine-trace")

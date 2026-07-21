@@ -339,3 +339,100 @@ investigate; this is the framework catching a real agent defect.
 - sqlite3's `conn.executescript` cannot run inside a transaction, but running it on every
   `connect()` is idempotent thanks to `IF NOT EXISTS` — no separate migration step needed at
   this scale.
+
+---
+
+## 2026-07-20 — Phase 6: pytest plugin + compare/gate logic
+
+**Key decisions:**
+
+- **Regression requires BOTH a margin breach AND CI exclusion.** A case only regresses when
+  `current.pass_rate < baseline.pass_rate - regression_margin` (default 0.10) AND the current
+  run's Wilson CI does not contain the baseline's pass rate. Verified the boundary directly:
+  6/8 → 5/8 clears the margin (drop of 0.125) but the 5/8 CI (≈[0.31, 0.86]) still contains
+  0.75, so it stays "ok" — that drop is statistically indistinguishable from noise at n=8. Only
+  8/8 → 1/8 (both conditions true) flags "regressed". Margin alone would false-alarm on every
+  noisy small-N wobble; CI alone would flag rounding-error-sized drops at large N.
+
+- **New cases never gate; removed cases only warn.** Both get informational verdicts excluded
+  from `has_regressions()`. A case with no baseline has nothing to regress against — gating on
+  it would punish the PR that added coverage.
+
+- **pytest plugin runs the engine once per session, cached on `session.stash`.** Same principle
+  as the Phase 3 semaphore: don't multiply LLM cost by something that isn't inherent to the
+  work. The first pytest item to need results triggers `run_cases()` once; every other item
+  reads its own `CaseResult` out of the cached dict.
+
+- **`load_case_file()` factored out of `load_cases()`.** The plugin validates one YAML file per
+  collected item (for per-file error messages); `evalgate run` validates a whole directory with
+  duplicate-id checking. Both now share one parse/validate path instead of two copies that could
+  drift.
+
+**Bugs encountered:**
+
+- **`pytest_load_initial_conftests` silently failed to inject the cases directory.** First
+  version guarded with `if cases_dir not in args: args.append(cases_dir)` — but `cases_dir`
+  already appears in `args` as the `--evalgate` option's *value*, so the guard always saw a
+  "duplicate" and skipped the append. Result: `pytest --evalgate DIR` fell back to `testpaths`
+  and only ever collected `tests/`, never the YAML cases. Caught by instrumenting the hook with
+  a debug print and comparing `args` before/after — fixed by always appending (pytest tolerates
+  the same path appearing as both an option value and a positional collection root).
+
+**Surprises:**
+
+- Verifying `compare` end-to-end against the real agent (2-case subset, replay mode) worked
+  cleanly, but the full 15-case suite still hits the free-tier `RESOURCE_EXHAUSTED` rate limit
+  from the Phase 4 addendum (15 req/min on `gemini-3.1-flash-lite`) — 15 cases × N trials queues
+  up 60-second backoff retries fast. Not a new bug, just a reminder that day-to-day dev-loop runs
+  against the real agent should use a small case subset, not the full suite.
+
+---
+
+## 2026-07-21 — Phase 7: Judge Calibration
+
+**Key decisions:**
+
+- **The original question is recovered from the stored `judge_prompt`, not a new DB column.**
+  `JUDGE_PROMPT_TEMPLATE` (scorers/judge.py) embeds the question between two fixed string
+  markers (`"Question given to the agent:\n"` … `"\n\nAgent's final answer:"`), and the full
+  prompt is already persisted verbatim in `trials.judge_prompt`. Splitting on those markers
+  round-trips the question with zero schema change. Falls back to the raw prompt text if the
+  markers are ever missing (e.g. the template changes later) rather than raising — labelling
+  can proceed with slightly noisier context instead of a hard failure.
+
+- **Stratified sampling is round-robin across `case_id`, not random.** A case with many
+  judge-scored trials (e.g. a flaky one re-run often) cannot crowd out a case with only one
+  or two — every case gets a pick before any case gets a second one. Simpler than weighted
+  random sampling and deterministic, which matters for reproducible exports.
+
+- **Cohen's kappa over raw agreement as the headline number.** Raw agreement is inflated when
+  one class dominates — a judge that always says "pass" agrees with a mostly-passing human
+  90% of the time by chance alone. Kappa subtracts expected chance agreement, so it is the
+  number that actually says whether the judge adds signal. Both are reported, but kappa is
+  what should be quoted in the README/resume per the spec.
+
+- **`--export` and the compute path share one `--labels` path, not two flags.** The command
+  writes to `--labels` when `--export` is set and reads from the same path otherwise. One flag,
+  one file, two directions — matches the spec's `evalgate calibrate --labels ... [--export]`
+  contract and avoids a second path argument that could silently point at the wrong file.
+
+**Bugs encountered:**
+
+- **First draft returned the judge's own JSON verdict as `final_text` in the export CSV**, not
+  the agent's actual answer. `sample_judge_trials` selected `t.judge_response` (the judge
+  model's `{"pass": ..., "reason": ...}` reply) into the `final_text` field instead of the
+  trial's own `t.final_text` column. Invisible in the unit tests because the test fixture set
+  both fields to the same string. Caught by smoke-testing `--export` against the real
+  `evalgate.db` and eyeballing the CSV — the `final_text` column was literal judge JSON. Fixed
+  by selecting `t.final_text` in the query; added an assertion in `test_export_and_load_round_trip`
+  that `final_text` doesn't contain `"pass"` to prevent silent regression.
+
+**Surprises:**
+
+- The real DB only has 2 judge-scored trials right now (one case, `msft_revenue_contains`, run
+  twice) — nowhere near the ~100 the spec wants for a meaningful kappa. Getting there requires
+  running the full 15-case suite (8 of which use the judge scorer) enough times to accumulate
+  ~100 judge trials, which the Phase 6 notes already flagged as rate-limit-bound on the free
+  tier. Calibration code is done and smoke-tested end-to-end (export → hand-label → compute →
+  report), but the actual ~100-label human pass and the real kappa number are still open —
+  that's the next piece of legwork before this phase can close out.
