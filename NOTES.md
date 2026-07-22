@@ -540,3 +540,83 @@ clean, multi-trial run once quota allows, rather than trusted long-term as-is.
 depth). Spec explicitly requires the baseline DB committed. Fixed with a negation line
 (`!baselines/evalgate.db`) directly under the exclusion rule so the exception stays next to what
 it's excepting.
+
+---
+
+## 2026-07-22 — Phase 9: Regression-Injection Study (code built, live run pending)
+
+**Key decisions:**
+
+- **Injections are in-process monkeypatches (`unittest.mock.patch`), not on-disk file patches.**
+  The spec says "via temporary patches" without mandating the mechanism. Monkeypatching a module
+  attribute for the duration of a `with` block guarantees the original is restored even if the
+  study crashes mid-injection — an on-disk patch-and-revert would need its own crash-safe cleanup
+  to get the same guarantee, and a crash there could leave a real source file (or worse, a
+  committed fixture) modified. In-process patching also means the whole study runs without ever
+  writing to the working tree, so `git status` stays clean throughout.
+
+- **`build_agent()` gained `temperature`, `retrieval_tools`, and `analysis_tools` parameters —
+  and this surfaced a real latent bug.** `config.temperature` (default 0.2) was defined in
+  `config.py` since Phase 0 but was never actually passed to the agent anywhere — `build_agent()`
+  didn't accept it and no `generate_content_config` was ever set on the ADK `LlmAgent`s, so every
+  run (eval, REPL, `adk run`) silently used ADK's own default temperature regardless of what
+  `evalgate.toml` said. Wiring `generate_content_config=GenerateContentConfig(temperature=...)`
+  into all four `LlmAgent`s fixes this for every caller, not just the study — `cli.py`'s
+  `_build_sec_agent_adapter` and `chat.py` were both updated to pass `cfg.temperature` through.
+  The tool-list parameters (`retrieval_tools`/`analysis_tools`) exist purely for injections #4, #6,
+  #7, which need a different tool list than the hardcoded literal in `build_agent()`'s body —
+  `None` (the default) preserves the exact original tool lists for every other caller.
+
+- **Injections that only need a different tool list or temperature are expressed as
+  `build_agent()` keyword overrides, not patches.** Only injections that touch something with no
+  existing seam (prompts, the trim function, the EDGAR client's raw response) use
+  `mock.patch.object`. This keeps the "patch" mechanism reserved for things that genuinely have no
+  cleaner expression, rather than monkeypatching everything uniformly for consistency's own sake.
+
+- **Naive mode strips scoring down to `{contains, regex, numeric}` and forces `trials=1`, dropping
+  `judge` and `trajectory` entirely** — not because those scorers are hard to naive-ify, but
+  because a team without an eval framework is unlikely to have built an LLM judge or a tool-call
+  sequence checker in the first place. All 15 existing cases keep at least one deterministic
+  scorer after the filter (verified this before writing the code, not after), so no case needs
+  special-casing.
+
+- **Naive mode's regression rule is a bare pass-to-fail flip per case, with no margin and no CI** —
+  that absence is exactly what naive mode is a strawman for. `compare.py`'s real two-condition
+  gate (margin AND CI exclusion) is reused unmodified for full mode, computed from `CaseResult` via
+  `stats.wilson_interval` directly rather than round-tripping through SQLite — the study needs the
+  same math `store.py` writes to the DB, not the DB itself.
+
+- **The "before" (unmodified-agent) run is computed once per mode and shared across all 10
+  injections, not re-run per injection.** Re-running the baseline 10 times would double the cost
+  for no signal — the agent under test doesn't change between injections, only the record of what
+  it does without any injection applied.
+
+**Bugs encountered:**
+
+- **`_build_adapter(build_kwargs, cfg)` crashed with `got multiple values for keyword argument
+  'temperature'` on injection #5 specifically.** The function called
+  `build_agent(temperature=cfg.temperature, **build_kwargs)`, and injection #5's own
+  `build_kwargs = {"temperature": 1.0}` collided with the explicit keyword. Every other injection's
+  `build_kwargs` doesn't touch `temperature`, so this was invisible until a smoke test actually
+  built the agent under each of the 10 injections in a loop — unit tests exercised `naive_cases`,
+  `case_result_rows`, and `naive_regressions` in isolation but never called `_build_adapter`. Fixed
+  by merging into one dict (`{"temperature": cfg.temperature, **build_kwargs}`) so the injection's
+  value wins instead of erroring; added `test_build_adapter_works_for_every_injection` and a
+  dedicated regression test for the exact collision so this can't silently return.
+
+**Still open — live execution deferred, by explicit user choice, not run silently:**
+
+- Estimated cost of the full study (10 injections x 2 modes x 15 cases, plus 2 shared baselines):
+  roughly 3,300 Gemini calls total (full-mode runs use each case's own trial count — 3-4 on
+  average, with judge calls on 8 of 15 cases; naive-mode runs are 15 cases x 1 trial each, no
+  judge). At the 15-requests/minute free-tier cap actually observed while seeding the Phase 8
+  baseline, that's 3+ hours of pure throughput assuming zero rate-limit backoff — roughly 10x the
+  call volume of the single `--trials 1` run that already hit that cap partway through.
+- Options discussed: shrink the case/injection count for the study, switch to a paid Gemini tier
+  for this one run, or run the full scope anyway spread across multiple quota windows. Decided:
+  defer live execution: user will specify a reduced scope (fewer cases and/or fewer injections)
+  before triggering a real run. `study/RESULTS.md` currently documents this pending state rather
+  than fabricated numbers.
+- README's study table, the "EvalGate ~9/10, naive ~4-6/10" comparison, and the v0.1.0 tag all
+  depend on `study/RESULTS.md` having real numbers — none of those are done yet either, for the
+  same reason.

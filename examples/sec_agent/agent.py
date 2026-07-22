@@ -175,19 +175,37 @@ skip step 2.
 # ---------------------------------------------------------------------------
 
 
-def build_agent(model: str = DEFAULT_MODEL) -> LlmAgent:
+def build_agent(
+    model: str = DEFAULT_MODEL,
+    temperature: float = 0.2,
+    retrieval_tools: list | None = None,
+    analysis_tools: list | None = None,
+) -> LlmAgent:
     """Construct the coordinator with its three sub-agents wired in.
 
     The EDGAR client must be configured (via
     `examples.sec_agent.tools.edgar.configure_client`) before invoking the
     returned agent — the tools call into a module-level singleton.
+
+    `retrieval_tools` / `analysis_tools` override the default tool list for
+    those two sub-agents (default `None` keeps normal behavior). This exists
+    for the Phase 9 regression-injection study, which needs to swap in a
+    shortened or wrapped tool list (e.g. drop a tool, or truncate a tool's
+    output) without touching this file — see `study/injections.py`.
     """
+    from google.genai import types as genai_types
+
+    generate_content_config = genai_types.GenerateContentConfig(temperature=temperature)
+
     retrieval_agent = LlmAgent(
         name="retrieval_agent",
         model=model,
         description="Fetches SEC EDGAR data: CIKs, company facts, recent filings.",
         instruction=RETRIEVAL_INSTRUCTION,
-        tools=[lookup_cik, get_company_facts, get_recent_filings],
+        tools=retrieval_tools
+        if retrieval_tools is not None
+        else [lookup_cik, get_company_facts, get_recent_filings],
+        generate_content_config=generate_content_config,
     )
 
     analysis_agent = LlmAgent(
@@ -195,7 +213,8 @@ def build_agent(model: str = DEFAULT_MODEL) -> LlmAgent:
         model=model,
         description="Performs arithmetic on retrieved financial figures.",
         instruction=ANALYSIS_INSTRUCTION,
-        tools=[calculate],
+        tools=analysis_tools if analysis_tools is not None else [calculate],
+        generate_content_config=generate_content_config,
     )
 
     report_agent = LlmAgent(
@@ -204,6 +223,7 @@ def build_agent(model: str = DEFAULT_MODEL) -> LlmAgent:
         description="Writes the final cited answer for the user.",
         instruction=REPORT_INSTRUCTION,
         tools=[],
+        generate_content_config=generate_content_config,
     )
 
     return LlmAgent(
@@ -212,6 +232,7 @@ def build_agent(model: str = DEFAULT_MODEL) -> LlmAgent:
         description="Routes SEC questions across retrieval, analysis, and report sub-agents.",
         instruction=COORDINATOR_INSTRUCTION,
         sub_agents=[retrieval_agent, analysis_agent, report_agent],
+        generate_content_config=generate_content_config,
     )
 
 
@@ -237,7 +258,7 @@ def _setup_for_adk_run() -> LlmAgent:
         requests_per_second=cfg.edgar.requests_per_second,
     )
     configure_client(client)
-    return build_agent()
+    return build_agent(temperature=cfg.temperature)
 
 
 root_agent = _setup_for_adk_run()

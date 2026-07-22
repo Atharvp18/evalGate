@@ -71,7 +71,7 @@ ruff check src/ tests/ examples/
 | 6 | pytest plugin, baseline save, regression gate | ✅ Done |
 | 7 | Judge calibration (Cohen's kappa) | ✅ Done |
 | 8 | GitHub Actions CI gate, trace mining, dashboard | ✅ Done |
-| 9 | Regression-injection study + release polish | — |
+| 9 | Regression-injection study + release polish | 🔧 In progress |
 
 ---
 

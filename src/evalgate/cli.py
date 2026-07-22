@@ -58,7 +58,7 @@ def _build_sec_agent_adapter(config: object) -> object:
         requests_per_second=edgar_cfg.requests_per_second,
     )
     configure_client(client)
-    agent = build_agent()
+    agent = build_agent(temperature=config.temperature)
     return ADKAdapter(agent)
 
 

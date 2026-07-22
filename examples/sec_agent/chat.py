@@ -41,7 +41,7 @@ async def main() -> None:
     )
     configure_client(client)
 
-    agent = build_agent()
+    agent = build_agent(temperature=cfg.temperature)
     adapter = ADKAdapter(agent)
 
     print("SEC Agent REPL — type your question (Ctrl-D or 'quit' to exit)\n")
