@@ -418,10 +418,34 @@ def calibrate(
 
 
 @app.command(name="mine-trace")
-def mine_trace(
+def mine_trace_cmd(
     run_id: int = typer.Option(..., "--run-id", help="Run ID containing the trial."),
     trial_id: int = typer.Option(..., "--trial-id", help="Trial ID to mine."),
     output: str = typer.Option(..., "-o", help="Output YAML path for the new case."),
+    cases: str = typer.Option(
+        "examples/sec_agent/cases",
+        "--cases",
+        help="Cases directory used to recover the case's input text.",
+    ),
+    db: str = typer.Option(None, "--db", help="SQLite DB path (overrides evalgate.toml)."),
 ) -> None:
-    """Generate a draft eval case YAML from a stored failed trial."""
-    typer.echo("evalgate mine-trace — not implemented yet (Phase 8)")
+    """Generate a draft eval case YAML from a stored trial."""
+    from evalgate.config import load_config
+    from evalgate.mine import TrialNotFoundError, mine_trace
+    from evalgate.store import connect
+
+    cfg = load_config()
+    if db:
+        cfg.db_path = db
+
+    conn = connect(cfg.db_path)
+    try:
+        try:
+            path = mine_trace(conn, run_id, trial_id, output, cases_dir=cases)
+        except (TrialNotFoundError, FileNotFoundError, ValueError) as e:
+            typer.echo(f"Error: {e}", err=True)
+            raise typer.Exit(2) from None  # noqa: B904
+    finally:
+        conn.close()
+
+    typer.echo(f"Wrote draft case to {path}. Review and edit it before committing.")

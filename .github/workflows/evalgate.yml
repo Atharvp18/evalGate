@@ -1,0 +1,40 @@
+name: EvalGate Regression Gate
+
+# Runs on every PR into main: replay the eval suite against the committed
+# EDGAR fixtures (no live network calls), then compare against the "main"
+# baseline stored in the committed baseline DB. Exits non-zero on a real
+# regression, which fails this check and blocks the merge.
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # baselines/evalgate.db is committed to the repo (see NOTES.md for why:
+      # simplest correct approach vs. shuttling a GH Actions artifact between
+      # jobs/branches). Copying it to the working DB path seeds the "main"
+      # baseline pointer before this run appends a new run on top of it.
+      - name: Restore baseline database
+        run: cp baselines/evalgate.db evalgate.db
+
+      - name: Run eval suite (replay mode — no EDGAR network calls)
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: uv run evalgate run --cases examples/sec_agent/cases
+
+      - name: Compare against baseline
+        run: uv run evalgate compare --baseline main

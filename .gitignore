@@ -219,6 +219,8 @@ __marimo__/
 
 # EvalGate
 evalgate.db
+# ...except the committed baseline the CI gate restores from (see NOTES.md Phase 8).
+!baselines/evalgate.db
 
 # macOS
 .DS_Store

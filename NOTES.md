@@ -436,3 +436,107 @@ investigate; this is the framework catching a real agent defect.
   tier. Calibration code is done and smoke-tested end-to-end (export → hand-label → compute →
   report), but the actual ~100-label human pass and the real kappa number are still open —
   that's the next piece of legwork before this phase can close out.
+
+---
+
+## 2026-07-22 — Phase 8: CI Gate, Trace Mining, Dashboard
+
+**Key decisions:**
+
+- **`mine-trace` recovers the input question from the case's own YAML file, not from a DB
+  column.** `TrialResult` only ever stored the agent's output (`final_text`), never its input —
+  every trial for a case is run against the same fixed `input` string in that case's YAML, so
+  re-loading the case by `case_id` via `loader.load_cases()` is the exact original text, not a
+  reconstruction. Mirrors the Phase 7 decision to recover data from an existing source of truth
+  instead of adding a schema column for something already available elsewhere.
+
+- **Mined trajectories drop `transfer_to_agent` calls.** Those are ADK sub-agent hand-off
+  plumbing, not something a human would ever assert on in a trajectory scorer — keeping them
+  would make every mined case's trajectory scorer immediately fail on the next passing run just
+  from ordinary agent routing.
+
+- **The judge rubric is always a `TODO` placeholder, never inferred from the failure.** Writing
+  a rubric requires human judgment about what "correct" looks like; auto-generating one from a
+  failed trial's own defect would just encode that defect as the new "expected" behavior. The
+  trajectory block only appears when the trial actually called at least one real tool — a
+  transfer-only trial mines to a judge-only draft.
+
+- **The nightly live-smoke check is a small script (`examples/sec_agent/live_smoke.py`), not
+  inline Python in the workflow YAML.** A multi-line Python block embedded in `run:` is unreadable
+  in the Actions UI and impossible to lint or unit-test; a real script file gets both, and can be
+  run locally (`python examples/sec_agent/live_smoke.py`) to debug a red nightly run without
+  touching CI at all.
+
+- **`baselines/evalgate.db` (committed to git) is restored by copying it to the working DB path
+  before `evalgate run`, per the spec's explicit "simplest correct approach" call.** The
+  alternative — passing the baseline between jobs as a GitHub Actions artifact — avoids
+  committing a binary file to git, but couples the gate to artifact retention windows and adds a
+  second job. A baseline is a single SQLite file that changes rarely (only when a PR intentionally
+  updates it); committing it keeps the gate a two-step, single-job workflow with no external state.
+
+- **Dashboard reads SQLite directly into pandas with hand-written SQL joins, no ORM and no new
+  `store.py` functions.** `pandas.read_sql_query` against `connect()` needs exactly three ad-hoc
+  joins (case_results×runs, trials×case_results) that only the dashboard uses — adding them to
+  `store.py` as named functions would be an abstraction with a single caller. `st.cache_data(ttl=30)`
+  avoids re-opening the DB on every widget interaction without needing a manual refresh button.
+
+**Bugs encountered:**
+
+- **`yaml.safe_dump` escaped the em dash in the mined description as `—`** because
+  `allow_unicode` defaults to `False` — the header comment and description both use "—" for
+  readability elsewhere in the project. Fixed with `allow_unicode=True`; caught immediately by
+  smoke-testing `mine-trace` against the real `evalgate.db` and reading the output file, same as
+  the Phase 7 `final_text` bug — unit tests parse the YAML back with `yaml.safe_load` either way,
+  so they never would have caught the escaping.
+
+**Surprises:**
+
+- `evalgate mine-trace` works on a *passing* trial too (nothing in the code requires
+  `passed=False`) — smoke-tested against real trial 1 in `evalgate.db`, which actually passed.
+  The spec's "failed trial" framing is the intended use case, not an enforced precondition; there
+  was no reason to add a check that would only reject a harmless call.
+
+**Still open (requires real API calls / real PRs, deferred rather than done silently):**
+
+- The nightly-smoke script was syntax-checked and YAML-validated but not executed — running it
+  spends live Gemini + SEC EDGAR quota.
+- The "real PR blocked, screenshot in README" deliverable from the spec's Phase 8 "Done when"
+  needs an actual GitHub PR now that the baseline exists — not something to fabricate.
+
+---
+
+## 2026-07-22 — Phase 8 addendum: seeding the baseline hit the daily quota, again
+
+**Bugs encountered:**
+
+- Even `gemini-3.1-flash-lite` free tier only allows **15 requests/minute** per the 429 response
+  body (`GenerateRequestsPerMinutePerProjectPerModel-FreeTier`, quotaValue 15) — a full 15-case ×
+  3-4-trial run needs 200+ calls (agent-internal coordinator/retrieval/report hops plus judge
+  calls on 8 cases), which cannot fit inside that window even serialized
+  (`max_concurrent_trials=1`) and with the runner's one-retry-after-60s backoff. Confirmed this is
+  a per-minute cap, not the previously-hit per-day cap from the Phase 4 addendum.
+
+- **Fix for *seeding* the baseline (not a permanent config change): `evalgate run --trials 1`.**
+  Overriding every case to 1 trial cut the call volume enough (15 cases × ~1 call each, judge
+  calls only on judge-scored cases) that only 2 of 15 cases still hit the per-minute window and
+  failed as a result — `flaky_ticker_only` (crashed mid-retry) and `googl_amzn_comparison`
+  (scoring-stage litellm exception). Both are quota artifacts, not real agent defects.
+
+- **`nvda_aapl_comparison` failed too, but this is the pre-existing real defect** first logged in
+  the Phase 4 addendum (Apple year-over-year growth using wrong-concept/outdated data) — the
+  judge correctly flagged "inconsistent and illogical fiscal periods." Not a new bug; confirms the
+  open finding is still live and unfixed.
+
+**Key decision:** saved run 3 (the `--trials 1` run, 12/15 clean passes) as the `main` baseline
+as-is, including the 2 quota-artifact failures and the 1 real defect, rather than spending more
+quota to retry just the 2 artifacts. Consequence to remember: those 3 cases currently show 0% in
+the baseline. A future run that also fails them will look "unchanged" (correct), but a future run
+that fixes the real `nvda_aapl_comparison` defect will show as "improved" rather than confirming a
+regression was fixed — acceptable for now, but this baseline should be re-seeded with a full,
+clean, multi-trial run once quota allows, rather than trusted long-term as-is.
+
+**Also found:** `.gitignore`'s bare `evalgate.db` pattern was silently excluding
+`baselines/evalgate.db` too (gitignore patterns without a leading `/` match the basename at any
+depth). Spec explicitly requires the baseline DB committed. Fixed with a negation line
+(`!baselines/evalgate.db`) directly under the exclusion rule so the exception stays next to what
+it's excepting.

@@ -69,8 +69,8 @@ ruff check src/ tests/ examples/
 | 4 | Scorers (contains, regex, numeric, trajectory, judge) | ✅ Done |
 | 5 | Wilson CI stats, SQLite store, `evalgate report` | ✅ Done |
 | 6 | pytest plugin, baseline save, regression gate | ✅ Done |
-| 7 | Judge calibration (Cohen's kappa) | 🔜 Next |
-| 8 | GitHub Actions CI gate, trace mining, dashboard | — |
+| 7 | Judge calibration (Cohen's kappa) | ✅ Done |
+| 8 | GitHub Actions CI gate, trace mining, dashboard | ✅ Done |
 | 9 | Regression-injection study + release polish | — |
 
 ---

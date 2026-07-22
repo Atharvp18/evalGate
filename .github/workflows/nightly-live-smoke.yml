@@ -1,0 +1,32 @@
+name: Nightly Live Smoke Test
+
+# The PR gate (evalgate.yml) runs entirely in replay mode against frozen
+# fixtures, so it can never notice if SEC EDGAR's real API drifts (new
+# response shape, a retired endpoint, etc.). This workflow asks the agent one
+# real question against the live EDGAR API on a schedule. It is intentionally
+# separate from the gate and non-blocking: an EDGAR outage or format change
+# should page nobody at merge time, just show up here for someone to notice.
+on:
+  schedule:
+    - cron: "0 13 * * *" # 13:00 UTC daily
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Ask the live agent one real question
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: uv run python examples/sec_agent/live_smoke.py

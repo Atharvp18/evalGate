@@ -48,6 +48,7 @@ ignore = ["B008"]
 "examples/sec_agent/chat.py" = ["E402"]
 "examples/sec_agent/record_fixtures.py" = ["E402"]
 "examples/sec_agent/agent.py" = ["E402"]
+"examples/sec_agent/live_smoke.py" = ["E402"]
 
 [dependency-groups]
 dev = [
