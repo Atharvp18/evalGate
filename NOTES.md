@@ -620,3 +620,67 @@ it's excepting.
 - README's study table, the "EvalGate ~9/10, naive ~4-6/10" comparison, and the v0.1.0 tag all
   depend on `study/RESULTS.md` having real numbers — none of those are done yet either, for the
   same reason.
+
+---
+
+## 2026-07-23 — Phase 9 addendum: first live study attempt, stopped at 7/10 (daily quota)
+
+**What happened:** ran `study/run_study.py` for real against a 5-case subset (`nvda_cik_lookup`,
+`nvda_latest_revenue`, `tsla_latest_revenue`, `msft_revenue_contains`, `format_bullet_list` —
+chosen to cover every scorer type while avoiding `nvda_aapl_comparison`'s known pre-existing
+defect and `flaky_ticker_only`'s history of quota-induced failures). Launched detached (`nohup` +
+`disown`, not the harness's own background-task tracking) since the Bash tool's timeout caps at
+10 minutes and this run was expected to take much longer — a harness-tracked background run got
+killed by that cap on the first attempt before this was caught.
+
+**Bugs encountered:**
+
+- **First launch failed immediately: `ModuleNotFoundError: No module named 'examples'`.** Ran
+  `python study/run_study.py` directly — running a `.py` file as a script only adds *that file's
+  own directory* to `sys.path`, not the repository root, so `examples.sec_agent` (a namespace
+  package living at the repo root, not installed) couldn't be found. `python -m study.run_study`
+  fixes it: `-m` adds the current working directory to `sys.path`, matching how pytest already
+  resolves the same import in the test suite. Worth remembering: any future study/study-adjacent
+  script needs `-m` invocation from the repo root, not direct execution.
+
+- **Ran the harness's own `run_in_background` once before realizing its 10-minute cap would kill
+  a multi-hour run.** Switched to a fully detached process (`nohup ... &; disown`) plus a separate
+  `Monitor` tail-and-filter on the log file, which survives independently of any single tool call's
+  timeout.
+
+- **First two monitor filter attempts leaked raw rate-limit tracebacks into near-continuous
+  notifications.** The runner's per-trial retry-then-fail logic means a quota-exhausted stretch
+  produces one multi-line Python traceback per failed call — with the study hitting the daily cap,
+  that was hundreds of near-identical tracebacks. Fixed by having the log-tailing `awk` filter
+  swallow every traceback/`RESOURCE_EXHAUSTED`/`ClientError` line into a running counter and only
+  surface it as a one-line tally attached to the next real progress marker (`Injection #`,
+  `caught:`, `Running ... baseline`). Real signal (progress + pass/fail) stayed visible; retry
+  noise stopped flooding the conversation.
+
+**The actual finding — Gemini's free tier has TWO separate quotas, and we'd only budgeted for
+one.** The 429 error bodies distinguish `GenerateRequestsPerMinutePerProjectPerModel-FreeTier`
+(quotaValue 15, seen throughout Phase 8) from `GenerateRequestsPerDayPerProjectPerModel-FreeTier`
+(quotaValue **500**, first seen here). By the time injection #8 started, the log showed 1,164
+hits against the *daily* 500-request cap — meaning the account had made several multiples of 500
+requests already today (this study plus whatever else ran earlier), and every 429 from that point
+on was unrecoverable within the same day. The runner's one-retry-with-60s-backoff logic is
+correctly designed for the *per-minute* cap (waiting out a short window) but can do nothing about
+a day-level cap — it will just keep retrying and failing until the day rolls over. This wasn't a
+bug in the code; it's a cost-planning gap: the ~3,300-call estimate in `NOTES.md`'s prior Phase 9
+entry accounted for total call volume but not for the fact that the free tier's real ceiling is
+whichever of the two quotas is tighter on a given day, and 500/day is far tighter than
+15/minute × however many minutes a multi-hour run spans.
+
+**Decision:** stopped the process at injection #8 rather than let it burn the rest of the day's
+(already-exhausted) quota on trials that could only fail. Kept the 7/10 completed injections'
+results in `study/RESULTS.md` rather than discarding them — real signal, worth having even
+incomplete. Full analysis and the remaining 3 injections (#8 skip_analysis_for_comparisons, #9
+corrupt_fixture_revenue, #10 one_sentence_report) are deferred until quota resets.
+
+**Early, provisional observation (do not treat as final — see caveats in RESULTS.md):** full mode
+and naive mode agreed on all 7 completed injections (5 caught, 2 missed) — no case yet where
+EvalGate's N-trial statistics or CI logic caught something a naive single trial missed. The 2
+misses (#1 no-citation, #2 prefer-annual-data) are both prompt-quality regressions that none of
+the 5 subset cases' scorers happened to check for, which may be an artifact of this specific
+5-case subset rather than a real finding about EvalGate vs. naive mode — worth re-checking once
+the study runs against the full 15-case set.
