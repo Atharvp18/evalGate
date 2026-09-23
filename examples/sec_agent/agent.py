@@ -31,6 +31,7 @@ if str(_repo_root / "src") not in sys.path:
     sys.path.insert(0, str(_repo_root / "src"))
 
 from google.adk.agents import LlmAgent
+from google.adk.models import BaseLlm
 
 from examples.sec_agent.tools.edgar import (
     get_company_facts,
@@ -176,7 +177,7 @@ skip step 2.
 
 
 def build_agent(
-    model: str = DEFAULT_MODEL,
+    model: str | BaseLlm = DEFAULT_MODEL,
     temperature: float = 0.2,
     retrieval_tools: list | None = None,
     analysis_tools: list | None = None,
@@ -186,6 +187,13 @@ def build_agent(
     The EDGAR client must be configured (via
     `examples.sec_agent.tools.edgar.configure_client`) before invoking the
     returned agent — the tools call into a module-level singleton.
+
+    `model` accepts either a bare Gemini model string (the default path) or
+    a `BaseLlm` instance such as `google.adk.models.lite_llm.LiteLlm`, which
+    routes the agent through a non-Gemini provider (e.g. Groq) for the
+    Phase 9 study — see `study/run_study.py`'s `--agent-model` flag. ADK's
+    `LlmAgent.model` field is typed `str | BaseLlm` natively, so no wrapping
+    is needed here beyond accepting either type.
 
     `retrieval_tools` / `analysis_tools` override the default tool list for
     those two sub-agents (default `None` keeps normal behavior). This exists

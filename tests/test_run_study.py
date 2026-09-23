@@ -7,10 +7,21 @@ test_store.py and test_compare.py.
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
+from google.adk.models.lite_llm import LiteLlm
 from study.injections import INJECTIONS
-from study.run_study import _build_adapter, case_result_rows, naive_cases, naive_regressions
+from study.run_study import (
+    QuotaExhausted,
+    _build_adapter,
+    _check_for_quota_failures,
+    case_result_rows,
+    load_checkpoint,
+    naive_cases,
+    naive_regressions,
+    save_checkpoint,
+)
 
 from evalgate.config import EvalGateConfig
 from evalgate.schema import CaseResult, EvalCase, RunReport, TrialResult
@@ -119,7 +130,7 @@ def test_build_adapter_lets_temperature_injection_override_config_default():
     cfg = EvalGateConfig()
     injection = next(i for i in INJECTIONS if i.id == "temperature_1_0")
     with injection.apply():
-        adapter = asyncio.run(_build_adapter(injection.build_kwargs, cfg))
+        adapter = asyncio.run(_build_adapter(injection.build_kwargs, cfg, None))
     assert adapter is not None
 
 
@@ -127,8 +138,101 @@ def test_build_adapter_works_for_every_injection():
     cfg = EvalGateConfig()
     for injection in INJECTIONS:
         with injection.apply():
-            adapter = asyncio.run(_build_adapter(injection.build_kwargs, cfg))
+            adapter = asyncio.run(_build_adapter(injection.build_kwargs, cfg, None))
         assert adapter is not None
+
+
+def test_build_adapter_wraps_agent_model_in_lite_llm():
+    # Regression test: --agent-model must route through LiteLlm, not get
+    # passed to build_agent() as a bare string (which would ask ADK to
+    # resolve "groq/..." as a Gemini model name and fail at run time).
+    cfg = EvalGateConfig()
+    adapter = asyncio.run(_build_adapter({}, cfg, "groq/llama-3.1-8b-instant"))
+    assert isinstance(adapter._agent.model, LiteLlm)
+    assert adapter._agent.model.model == "groq/llama-3.1-8b-instant"
+
+
+# ---------------------------------------------------------------------------
+# _check_for_quota_failures / checkpoint round-trip
+# ---------------------------------------------------------------------------
+
+
+def _trial_with_reason(idx: int, passed: bool, failure_reason: str | None) -> TrialResult:
+    return TrialResult(trial_idx=idx, passed=passed, failure_reason=failure_reason)
+
+
+def test_check_for_quota_failures_raises_on_resource_exhausted():
+    report = RunReport(
+        cases=[
+            CaseResult(
+                case_id="c1",
+                trials=[
+                    _trial_with_reason(
+                        0, False, "google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED..."
+                    )
+                ],
+            )
+        ]
+    )
+    with pytest.raises(QuotaExhausted, match="c1"):
+        _check_for_quota_failures(report, "test label")
+
+
+def test_check_for_quota_failures_raises_on_server_error_503():
+    # Regression test: a transient Gemini 503 ("the service is currently
+    # unavailable") went undetected here before — a round tainted by one
+    # would have been silently checkpointed as real agent behavior.
+    report = RunReport(
+        cases=[
+            CaseResult(
+                case_id="c1",
+                trials=[
+                    _trial_with_reason(
+                        0, False, "google.genai.errors.ServerError: 503 UNAVAILABLE..."
+                    )
+                ],
+            )
+        ]
+    )
+    with pytest.raises(QuotaExhausted, match="c1"):
+        _check_for_quota_failures(report, "test label")
+
+
+def test_check_for_quota_failures_ignores_ordinary_failures():
+    report = RunReport(
+        cases=[
+            CaseResult(
+                case_id="c1", trials=[_trial_with_reason(0, False, "contains: missing substring")]
+            )
+        ]
+    )
+    _check_for_quota_failures(report, "test label")  # does not raise
+
+
+def test_check_for_quota_failures_ignores_passing_trials():
+    report = RunReport(cases=[CaseResult(case_id="c1", trials=[_trial_with_reason(0, True, None)])])
+    _check_for_quota_failures(report, "test label")  # does not raise
+
+
+def test_checkpoint_round_trips_through_disk(tmp_path):
+    path = tmp_path / "checkpoint.json"
+    checkpoint = {
+        "cases_dir": "some/dir",
+        "baseline": {
+            "full_rows": [{"case_id": "c1", "pass_rate": 1.0}],
+            "naive_pass": {"c1": True},
+        },
+        "injections": {"1": {"number": 1, "full_caught": True, "naive_caught": False}},
+    }
+    save_checkpoint(path, checkpoint)
+    loaded = load_checkpoint(path)
+    assert loaded == checkpoint
+    assert json.loads(path.read_text())["injections"]["1"]["number"] == 1
+
+
+def test_load_checkpoint_missing_file_returns_empty_shape(tmp_path):
+    loaded = load_checkpoint(tmp_path / "does_not_exist.json")
+    assert loaded == {"baseline": None, "injections": {}}
 
 
 def test_naive_regressions_multiple_cases():

@@ -684,3 +684,90 @@ misses (#1 no-citation, #2 prefer-annual-data) are both prompt-quality regressio
 the 5 subset cases' scorers happened to check for, which may be an artifact of this specific
 5-case subset rather than a real finding about EvalGate vs. naive mode — worth re-checking once
 the study runs against the full 15-case set.
+
+---
+
+## 2026-09-23 — Phase 9 completion: full 15-case study, real numbers, two infra fixes
+
+**Context:** four days before an interview where this project needed to be demoable, so the
+priority shifted from "cheapest possible completion" to "correct, complete result, fast." That
+reprioritization drove every decision below — several alternatives were explored and abandoned
+specifically because they cost more time than they saved.
+
+**Key decisions:**
+
+- **Paid Gemini tier, not a free alternative provider.** Explored Groq (free tier: Llama 3.x
+  models are retired; the only tool-calling-capable models left, `openai/gpt-oss-120b`/`20b`, cap
+  at 1,000 requests/day *and* a tighter-than-expected 8,000 tokens/minute — the latter alone would
+  need ~28 hours of continuous throughput for this study's ~13M-token volume) and Ollama running
+  locally (`llama3.1:8b` on the dev machine's 16GB M4: zero external rate cap, but it concretely
+  broke the multi-agent hand-off protocol on the very first smoke-test trial and hallucinated a
+  revenue figure off by roughly 10x). Both are recorded here because they're legitimate rejected
+  alternatives, not because either shipped. Real per-token pricing pulled live from
+  `ai.google.dev/gemini-api/docs/pricing` put the full 15-case study at **~$3.55** on
+  `gemini-3.1-flash-lite` — cheap enough that "pay for it" beat "debug a smaller model's
+  reliability under time pressure." (`evalgate.toml`'s configured cost rates, $0.075/$0.30 per 1M,
+  are stale against this real pricing — a leftover from whenever they were last set; worth fixing
+  separately, not urgent enough to block this run.)
+
+- **`max_concurrent_trials` reverted from 6 back to 1 after one failed attempt, not debugged
+  further.** Paid tier easily clears the RPM/RPD math that originally forced serialization, so 6
+  was tried once to speed things up. It triggered a burst of ADK `ValueError: Tool 'X' not found`
+  errors that the serialized rerun did *not* reproduce at the same rate in its first minutes (see
+  below — a lower rate of the same error did eventually show up even at concurrency 1, so the
+  causal link to concurrency specifically was never proven, only suspected). Given the interview
+  deadline, "revert to the config already known to work" was the correct call over spending time
+  proving or disproving an ADK concurrency-safety hypothesis that doesn't change what to *do*
+  either way.
+
+- **Runner retry logic broadened from rate-limit-only to rate-limit-or-transient-server-error.**
+  `runner.py`'s one-retry-then-fail path only recognized `RESOURCE_EXHAUSTED`/`429` (Phase 4
+  addendum's free-tier design). Paid tier doesn't hit those, but a real Gemini 503
+  ("the service is currently unavailable") surfaced mid-run and was *not* retried — it survived
+  even the `google-genai` SDK's own internal `tenacity` retries before reaching evalgate's runner.
+  Fixed by adding `"503"`, `"UNAVAILABLE"`, and `"ServerError"` to the retry-worthy marker list
+  alongside the existing rate-limit markers, and mirroring the same broadened list in
+  `study/run_study.py`'s `_check_for_quota_failures` — a round tainted by an unretried 503 would
+  otherwise have been silently checkpointed as if it were real agent behavior. Added
+  `tests/test_runner.py` (previously zero unit coverage on this retry path, 429 case included) and
+  a new `_check_for_quota_failures` case for the 503 marker.
+
+**Bugs encountered:**
+
+- **ADK `ValueError: Tool 'retrieval_agent' not found` (and, once, `'retrieval_agent:get_company_facts'`,
+  `'default_agent:report_agent'`).** Traced into `google/adk/flows/llm_flows/functions.py`'s
+  `_get_tool()` — its own error message names the likely cause: "LLM hallucinated the function
+  name." The coordinator's only real tool is `transfer_to_agent`; `gemini-3.1-flash-lite`
+  occasionally calls a sub-agent's *name* directly instead, as if it were a callable tool. Not a
+  bug in this codebase or in ADK — genuine, if intermittent, small-model tool-calling unreliability,
+  and exactly the kind of thing the multi-trial statistical framework exists to quantify honestly
+  rather than hide. One specific consequence worth remembering: `flaky_ticker_only`
+  (`examples/sec_agent/cases/flaky_ticker_only.yaml`) was designed to test *formatting* flakiness
+  (a CIK→ticker question with a strict one-word regex), but its actual observed failure mode in
+  this run was this tool-hallucination bug instead — the agent has no CIK→ticker tool at all, so
+  the model's most common mistake is passing the CIK into `lookup_cik(ticker=...)`, which correctly
+  raises `ValueError: Ticker '...' not found`, but ADK propagates that as an uncaught exception
+  instead of handing it back to the model to recover from. The case still produces valid signal,
+  just via a different mechanism than the one it was written to exercise.
+
+- **Two prior live-run attempts had to be discarded before this one, both caught before any bad
+  data was checkpointed.** (1) The `max_concurrent_trials=6` attempt above. (2) A run that hit an
+  unretried 503 mid-injection — confirmed via the checkpoint file's contents that the baseline data
+  already saved was clean (computed before the 503 occurred), so nothing false was ever persisted;
+  the in-progress round that hit the 503 was correctly never checkpointed, matching the Phase 9
+  "quota safety" design intent even though 503 wasn't yet in scope for it.
+
+**Final result — full 15-case set, single clean run, ~$3.55, ~50 minutes wall-clock at
+`max_concurrent_trials=1`:**
+
+EvalGate (full mode) caught **7/10**. Naive mode (1 trial, exact-match-only) caught **6/10**.
+The one divergence — **Injection #1 (report_agent's citation requirement deleted) was caught by
+full mode and missed by naive mode** — is the concrete demonstration the whole study exists to
+produce: naive single-trial exact-match testing missed a real prompt-quality regression that
+EvalGate's judge scorer plus multi-trial statistics caught. Both modes missed #5 (temperature
+raised to 1.0 — a noise/consistency regression with no scorer built to catch it), #8 (coordinator
+skips the analysis agent for comparisons), and #10 (forced one-sentence answers) — none of the 15
+cases' scorers were written to check for reasoning-consistency or answer-completeness, which is an
+honest scorer-coverage gap worth naming if asked, not a framework failure. Full table in
+`study/RESULTS.md`. This replaces the earlier partial 7/10-of-10-injections-on-a-5-case-subset
+result from the prior addendum — that one is now superseded, not merged.

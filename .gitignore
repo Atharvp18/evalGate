@@ -221,6 +221,11 @@ __marimo__/
 evalgate.db
 # ...except the committed baseline the CI gate restores from (see NOTES.md Phase 8).
 !baselines/evalgate.db
+# Local ADK runtime session DB (created by `adk run`/`adk web`), not project state.
+examples/sec_agent/.adk/
+# study/run_study.py's resume checkpoint — ephemeral working state, not a deliverable
+# (RESULTS.md and NOTES.md are the record of a finished study, see Phase 9 addendum).
+study/study_checkpoint.json
 
 # macOS
 .DS_Store

@@ -52,9 +52,13 @@ async def _run_single_trial(
                 failure_reason=f"max_llm_calls_exceeded (limit={config.max_llm_calls_per_run})",
             )
 
-        # One retry on rate-limit errors: the Gemini free tier allows only a
-        # handful of requests per minute, so a single 429 usually clears after
-        # waiting out the window. Any other exception fails the trial directly.
+        # One retry on rate-limit errors or a transient server outage: the
+        # Gemini free tier allows only a handful of requests per minute, so a
+        # single 429 usually clears after waiting out the window, and a 503
+        # ("the service is currently unavailable") is Google's own signal
+        # that the request itself was fine but the backend had a momentary
+        # hiccup — both are worth one retry rather than a permanent trial
+        # failure. Any other exception fails the trial directly.
         for attempt in range(2):
             try:
                 result: AgentRunResult = await asyncio.wait_for(
@@ -76,10 +80,20 @@ async def _run_single_trial(
                 )
             except Exception:
                 tb = traceback.format_exc()
-                is_rate_limit = "RESOURCE_EXHAUSTED" in tb or "429" in tb
-                if is_rate_limit and attempt == 0:
+                is_retryable = any(
+                    marker in tb
+                    for marker in (
+                        "RESOURCE_EXHAUSTED",
+                        "429",
+                        "503",
+                        "UNAVAILABLE",
+                        "ServerError",
+                    )
+                )
+                if is_retryable and attempt == 0:
                     logger.warning(
-                        "Trial %d for case %r hit a rate limit; retrying in 60s",
+                        "Trial %d for case %r hit a rate limit or transient "
+                        "server error; retrying in 60s",
                         trial_idx,
                         case.id,
                     )
