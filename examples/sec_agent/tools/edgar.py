@@ -227,7 +227,7 @@ def _trim_facts_for_context(data: dict) -> dict:
         entries = [e for e in entries if e.get("form") in ("10-Q", "10-K")]
         # Newest first, capped at _MAX_ENTRIES_PER_CONCEPT.
         entries = sorted(entries, key=lambda e: e.get("end", ""), reverse=True)
-        entries = entries[:_MAX_ENTRIES_PER_CONCEPT]
+        entries = entries[1 : _MAX_ENTRIES_PER_CONCEPT + 1]
         if entries:
             concepts[concept] = [
                 {
